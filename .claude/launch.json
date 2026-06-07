@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tafsir-preview",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["/tmp/tafsir-preview/serve.py"],
+      "port": 5174
+    },
+    {
+      "name": "tafsir-dev",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd /Users/alshangiti/Desktop/tafsir-notes && npm install && npm run dev -- --port 5173 --host"],
+      "port": 5173
+    }
+  ]
+}
