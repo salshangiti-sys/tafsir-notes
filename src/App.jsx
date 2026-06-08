@@ -896,14 +896,15 @@ function AyahMindMap({ note, width }) {
   const tagList    = (note.tags   || []);
   const ayah = note.ayahFrom === note.ayahTo ? note.ayahFrom : `${note.ayahFrom}–${note.ayahTo}`;
 
-  // Per-type color style
+  // Per-type color style — fill uses separate fillOp so SVG fillOpacity works correctly
+  // (8-digit hex alpha isn't supported by all SVG renderers)
   const MS = {
-    م: { fill:"#FFF27533", stroke:"#FFF275", text:"#8a8600", badge:"#FFF275" },
-    خ: { fill:"#D6B4FC33", stroke:"#D6B4FC", text:"#5a1f8a", badge:"#D6B4FC" },
-    د: { fill:"#A3E63533", stroke:"#A3E635", text:"#3d6600", badge:"#A3E635" },
-    ت: { fill:"#FF9F1C33", stroke:"#FF9F1C", text:"#7a4000", badge:"#FF9F1C" },
+    م: { fill:"#FFF275", fillOp:0.22, stroke:"#FFF275", text:"#8a8600", badge:"#FFF275" },
+    خ: { fill:"#D6B4FC", fillOp:0.22, stroke:"#D6B4FC", text:"#5a1f8a", badge:"#D6B4FC" },
+    د: { fill:"#A3E635", fillOp:0.22, stroke:"#A3E635", text:"#3d6600", badge:"#A3E635" },
+    ت: { fill:"#FF9F1C", fillOp:0.22, stroke:"#FF9F1C", text:"#7a4000", badge:"#FF9F1C" },
   };
-  const DS = { fill:"#1a1a2e", stroke:"#555577", text:"#aaa", badge:"#555577" };
+  const DS = { fill:"#1a1a2e", fillOp:1, stroke:"#555577", text:"#aaa", badge:"#555577" };
 
   const parseMC = (txt = "") => {
     const m = txt.match(/^([مخدت])\s*[—–-]\s*/);
@@ -927,20 +928,22 @@ function AyahMindMap({ note, width }) {
   const rightData = masailData.filter((_,i) => i%2===1);
 
   // ── Layout constants ──
-  const cx     = Math.round(width / 2);
-  const nW     = 162, nH = 60;       // masala node
-  const cW     = 134, cH = 68;       // center node
-  const armX   = 185;                // horiz distance center→node-center
-  const gapY   = 88;                 // vert gap between nodes on same side
+  // Use a virtual width of at least 900 for the layout, then scale via viewBox
+  const svgW   = Math.max(width, 900);
+  const cx     = Math.round(svgW / 2);
+  const nW     = 172, nH = 62;       // masala node
+  const cW     = 140, cH = 68;       // center node
+  const armX   = 280;                // horiz distance center→node-center (wider spread)
+  const gapY   = 90;                 // vert gap between nodes on same side
 
   const maxN     = Math.max(leftData.length, rightData.length, 1);
   const sideSpan = (maxN - 1) * gapY;
-  const topicsH  = topicList.length > 0 ? 68 : 28;
-  const tagsH    = tagList.length   > 0 ? 62 : 22;
-  const topPad   = 18;
-  const legendH  = 26;
+  const topicsH  = topicList.length > 0 ? 80 : 28;
+  const tagsH    = tagList.length   > 0 ? 70 : 22;
+  const topPad   = 20;
+  const legendH  = 28;
 
-  const cy   = topPad + topicsH + Math.max(sideSpan / 2, cH / 2) + 12;
+  const cy   = topPad + topicsH + Math.max(sideSpan / 2, cH / 2) + 14;
   const svgH = cy + Math.max(sideSpan / 2, cH / 2) + tagsH + legendH + topPad;
 
   // ── Build masail paths + nodes ──
@@ -974,10 +977,11 @@ function AyahMindMap({ note, width }) {
         <g key={`n${item.idx}`}
           onMouseEnter={() => setHoverIdx(item.idx)}
           onMouseLeave={() => setHoverIdx(null)}>
-          {/* Node box */}
+          {/* Node box — fillOpacity keeps SVG colour correct across all renderers */}
           <rect x={nodeX} y={ny-nH/2} width={nW} height={nH} rx={11}
-            fill={item.st.fill} stroke={item.st.stroke}
-            strokeWidth={isHov ? 2 : 1} strokeOpacity={isHov ? 1 : 0.65}/>
+            fill={item.st.fill} fillOpacity={item.st.fillOp}
+            stroke={item.st.stroke} strokeOpacity={isHov ? 1 : 0.7}
+            strokeWidth={isHov ? 2 : 1}/>
           {/* Color badge */}
           {item.colorKey && <>
             <rect x={badgeX} y={badgeY} width={18} height={18} rx={5}
@@ -1010,36 +1014,53 @@ function AyahMindMap({ note, width }) {
   drawSide(leftData,  "left");
   drawSide(rightData, "right");
 
-  // ── Topics (top, dashed blue) ──
-  const tLabelY = topPad + 14;
-  const tPillY  = tLabelY + 18;
-  const maxPills = Math.max(1, Math.floor((width - 80) / 98));
-  const showTopics = topicList.slice(0, maxPills);
+  // ── Topics (top, dashed blue) — dynamic pill widths, full text, multi-row ──
+  const tLabelY  = topPad + 14;
+  const tPillH   = 22;
+  const tPillGap = 8;
+  // Each pill is wide enough for its full text
+  const topicPillWidths = topicList.map(t => Math.max(110, t.length * 13 + 28));
+  // Layout in rows fitting svgW - 80
+  const tRows = [];
+  let tRow = [], tRowW = 0;
+  topicList.forEach((t, i) => {
+    const pw = topicPillWidths[i];
+    if (tRowW > 0 && tRowW + tPillGap + pw > svgW - 80) {
+      tRows.push(tRow); tRow = []; tRowW = 0;
+    }
+    tRow.push(i); tRowW += (tRowW > 0 ? tPillGap : 0) + pw;
+  });
+  if (tRow.length) tRows.push(tRow);
+  const tTotalH = tRows.length * (tPillH + 4) + 4;
+  const tPillsStartY = tLabelY + 16;
+  const tBottomY = tPillsStartY + tTotalH;
 
   const topicsEl = topicList.length > 0 && (
     <g key="topics">
-      <line x1={cx} y1={tPillY + 22} x2={cx} y2={cy - cH/2}
+      <line x1={cx} y1={tBottomY} x2={cx} y2={cy - cH/2}
         stroke="#4A90D9" strokeWidth={1.4} strokeDasharray="5,4" strokeOpacity={0.5}/>
       <text x={cx} y={tLabelY} textAnchor="middle"
         fill="#4A90D9" fontSize={11} fontWeight="600" fontFamily="Cairo,serif">▲ الموضوعات</text>
-      {showTopics.map((t, i) => {
-        const cat = TOPICS.find(c => c.items.includes(t));
-        const col = cat?.color || "#4A90D9";
-        const pw  = Math.floor((width - 80) / showTopics.length) - 6;
-        const px  = cx - (showTopics.length * (pw + 6) - 6) / 2 + i * (pw + 6);
-        return (
-          <g key={t}>
-            <rect x={px} y={tPillY} width={pw} height={20} rx={10}
-              fill={col+"22"} stroke={col+"77"} strokeWidth={1}/>
-            <text x={px + pw/2} y={tPillY + 13} textAnchor="middle"
-              fill={col} fontSize={9.5} fontFamily="Cairo,serif">{t.slice(0, 9)}</text>
-          </g>
-        );
+      {tRows.map((rowIdxs, ri) => {
+        const rowTotalW = rowIdxs.reduce((s, i) => s + topicPillWidths[i], 0) + (rowIdxs.length - 1) * tPillGap;
+        let rx = cx - rowTotalW / 2;
+        const ry = tPillsStartY + ri * (tPillH + 4);
+        return rowIdxs.map(i => {
+          const t = topicList[i];
+          const pw = topicPillWidths[i];
+          const cat = TOPICS.find(c => c.items.includes(t));
+          const col = cat?.color || "#4A90D9";
+          const pillX = rx; rx += pw + tPillGap;
+          return (
+            <g key={t}>
+              <rect x={pillX} y={ry} width={pw} height={tPillH} rx={tPillH/2}
+                fill={col} fillOpacity={0.15} stroke={col} strokeOpacity={0.6} strokeWidth={1}/>
+              <text x={pillX + pw/2} y={ry + 14} textAnchor="middle"
+                fill={col} fontSize={10.5} fontFamily="Cairo,serif">{t}</text>
+            </g>
+          );
+        });
       })}
-      {topicList.length > maxPills && (
-        <text x={cx + (maxPills * 52) / 2 + 12} y={tPillY + 14}
-          fill="#4A90D966" fontSize={10} fontFamily="Cairo,serif">+{topicList.length - maxPills}</text>
-      )}
     </g>
   );
 
@@ -1088,7 +1109,9 @@ function AyahMindMap({ note, width }) {
 
   return (
     <div style={{ position:"relative" }}>
-      <svg width={width} height={svgH} style={{ display:"block", overflow:"visible", fontFamily:"Cairo,serif" }}>
+      <svg width={width} height={Math.round(svgH * (width / svgW))}
+        viewBox={`0 0 ${svgW} ${svgH}`}
+        style={{ display:"block", overflow:"visible", fontFamily:"Cairo,serif" }}>
         <defs>
           <radialGradient id={`ag-${note.surah}-${ayah}`} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#C9A84C" stopOpacity="0.18"/>
