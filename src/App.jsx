@@ -269,47 +269,59 @@ function generateExportHTML(notes, surahIntros, opts = {}) {
     includePageNums   = true,
   } = opts;
 
-  // ── Color helpers ──
-  const MASALA_BG = { م:"#FFF27533", خ:"#D6B4FC33", د:"#A3E63533", ت:"#FF9F1C33" };
-  const MASALA_BORDER = { م:"#FFF27588", خ:"#D6B4FC88", د:"#A3E63588", ت:"#FF9F1C88" };
-  const MASALA_COLOR  = { م:"#7a6400", خ:"#5a1f8a", د:"#3d6600", ت:"#7a4000" };
+  // ── Color helpers (print-safe: solid light backgrounds, dark text) ──
+  const MASALA_BG     = { م:"#FFF9D6", خ:"#F0E8FF", د:"#EDFAD4", ت:"#FFF0D6" };
+  const MASALA_BORDER = { م:"#e8d060", خ:"#b090e0", د:"#80cc40", ت:"#e08020" };
+  const MASALA_COLOR  = { م:"#6b5900", خ:"#4a1878", د:"#2d5200", ت:"#6b3000" };
+
+  // Color system cards for legend — print-safe solid backgrounds
+  const CARD_STYLES = {
+    م: { bg:"#FFF9D6", text:"#6b5900" },
+    خ: { bg:"#F0E8FF", text:"#4a1878" },
+    د: { bg:"#EDFAD4", text:"#2d5200" },
+    ت: { bg:"#FFF0D6", text:"#6b3000" },
+  };
 
   // ── Legend page ──
-  const colorCards = COLOR_SYSTEM.map(cs => `
-    <div class="legend-color-card" style="background:${cs.color}33;border:1px solid ${cs.color}88;border-radius:10px;padding:10px 14px;flex:1;min-width:120px">
-      <div style="font-size:18px;font-weight:700;color:${cs.dark || "#333"}">${cs.key}</div>
-      <div style="font-size:13px;font-weight:600;margin-top:2px">${cs.label}</div>
-      <div style="font-size:11px;color:#666;margin-top:4px">${cs.desc || ""}</div>
-    </div>`).join("");
+  const colorCards = COLOR_SYSTEM.map(cs => {
+    const cs2 = CARD_STYLES[cs.key] || { bg:"#f5f5f5", text:"#333" };
+    return `
+    <div style="background:${cs2.bg};border:1.5px solid ${cs.color};border-radius:10px;padding:12px 16px;flex:1;min-width:130px">
+      <div style="font-size:20px;font-weight:700;color:${cs2.text}">${cs.key}</div>
+      <div style="font-size:13px;font-weight:600;color:${cs2.text};margin-top:3px">${cs.label}</div>
+      <div style="font-size:11px;color:#666;margin-top:5px">${cs.desc || ""}</div>
+    </div>`;
+  }).join("");
 
   const topicPills = TOPICS.map(cat => {
+    // Darken category colors for print legibility on white
     const pills = cat.items.map(t =>
-      `<span style="display:inline-block;background:${cat.color}22;border:1px solid ${cat.color}55;color:${cat.color};border-radius:20px;padding:2px 10px;font-size:11px;margin:2px 3px">${t}</span>`
+      `<span style="display:inline-block;background:${cat.color}18;border:1px solid ${cat.color}88;color:${cat.color};border-radius:20px;padding:2px 10px;font-size:11px;margin:2px 3px">${t}</span>`
     ).join("");
-    return `<div style="margin-bottom:8px"><span style="font-size:11px;font-weight:700;color:#888;display:block;margin-bottom:3px">${cat.category}</span>${pills}</div>`;
+    return `<div style="margin-bottom:8px"><span style="font-size:11px;font-weight:700;color:#666;display:block;margin-bottom:3px">${cat.category}</span>${pills}</div>`;
   }).join("");
 
   const legendPage = `
-  <div class="legend-page" style="background:#1a1208;color:#e8d5a0;padding:32px 36px;border-radius:0;min-height:100vh;page-break-after:always">
-    <div style="text-align:center;margin-bottom:28px">
-      <div style="font-family:'Amiri',serif;font-size:28px;font-weight:700;color:#C9A84C;margin-bottom:6px">📖 مفكرة التفسير — القرطبي</div>
+  <div style="background:#ffffff;color:#1a1a1a;padding:32px 36px;border-radius:0;min-height:100vh;page-break-after:always">
+    <div style="text-align:center;margin-bottom:28px;padding-bottom:18px;border-bottom:2px solid #C9A84C">
+      <div style="font-family:'Amiri',serif;font-size:28px;font-weight:700;color:#8a6000;margin-bottom:6px">📖 مفكرة التفسير — القرطبي</div>
       <div style="font-size:13px;color:#888">تصدير بتاريخ ${new Date().toLocaleDateString("ar-SA")} · ${notes.length} ملاحظة</div>
-      <div style="margin-top:10px;border-top:1px solid #C9A84C44;padding-top:10px;font-size:12px;color:#C9A84C99">﴿ وَنَزَّلْنَا عَلَيْكَ الْكِتَابَ تِبْيَانًا لِكُلِّ شَيْءٍ ﴾</div>
+      <div style="margin-top:10px;font-size:12px;color:#9a7030">﴿ وَنَزَّلْنَا عَلَيْكَ الْكِتَابَ تِبْيَانًا لِكُلِّ شَيْءٍ ﴾</div>
     </div>
 
     <div style="margin-bottom:24px">
-      <div style="font-size:14px;font-weight:700;color:#C9A84C;margin-bottom:12px;border-right:3px solid #C9A84C;padding-right:10px">نظام الألوان الأربعة</div>
+      <div style="font-size:14px;font-weight:700;color:#7a5200;margin-bottom:12px;border-right:3px solid #C9A84C;padding-right:10px">نظام الألوان الأربعة</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">${colorCards}</div>
     </div>
 
     <div style="margin-bottom:24px">
-      <div style="font-size:14px;font-weight:700;color:#C9A84C;margin-bottom:12px;border-right:3px solid #C9A84C;padding-right:10px">الموضوعات القرآنية</div>
-      <div style="background:#ffffff11;border-radius:10px;padding:14px 16px">${topicPills}</div>
+      <div style="font-size:14px;font-weight:700;color:#7a5200;margin-bottom:12px;border-right:3px solid #C9A84C;padding-right:10px">الموضوعات القرآنية</div>
+      <div style="background:#fafafa;border:1px solid #e8e8e8;border-radius:10px;padding:14px 16px">${topicPills}</div>
     </div>
 
     <div>
-      <div style="font-size:14px;font-weight:700;color:#C9A84C;margin-bottom:8px;border-right:3px solid #C9A84C;padding-right:10px">الوسوم</div>
-      <div style="font-size:12px;color:#aaa">أسماء أعلام، مصطلحات، أو كلمات مفتاحية مسبوقة بـ <span style="background:#33333388;border-radius:6px;padding:1px 7px;font-family:monospace">#</span></div>
+      <div style="font-size:14px;font-weight:700;color:#7a5200;margin-bottom:8px;border-right:3px solid #C9A84C;padding-right:10px">الوسوم</div>
+      <div style="font-size:12px;color:#555">أسماء أعلام، مصطلحات، أو كلمات مفتاحية مسبوقة بـ <span style="background:#f0f0f0;border:1px solid #ddd;border-radius:6px;padding:1px 7px;font-family:monospace;color:#333">#</span></div>
     </div>
   </div>`;
 
@@ -352,7 +364,7 @@ function generateExportHTML(notes, surahIntros, opts = {}) {
       }).join("") : "";
 
       const tagPillsRow = (includeTopicsTags && note.tags?.length) ?
-        note.tags.map(t => `<span style="background:#33333322;border:1px solid #55555544;color:#666;border-radius:20px;padding:2px 10px;font-size:11px;margin:2px 3px;display:inline-block">#${t}</span>`).join("") : "";
+        note.tags.map(t => `<span style="background:#f0f0f0;border:1px solid #ccc;color:#555;border-radius:20px;padding:2px 10px;font-size:11px;margin:2px 3px;display:inline-block">#${t}</span>`).join("") : "";
 
       body += `<div class="note-card">
         <div class="note-header">
@@ -390,27 +402,26 @@ function generateExportHTML(notes, surahIntros, opts = {}) {
 <style>
   * { box-sizing:border-box; }
   body { font-family:'Cairo','Amiri',serif; direction:rtl; margin:0; color:#1a1a1a; background:#fff; font-size:14px; line-height:1.9; }
-  .legend-page .legend-color-card { color:#1a1208; }
   .surah-section { margin-bottom:48px; padding:0 36px; }
-  .surah-header { background:#1a1208; color:#C9A84C; border-radius:10px; padding:12px 20px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; font-size:22px; font-family:'Amiri',serif; font-weight:700; }
-  .surah-meta { font-size:13px; color:#C9A84C99; font-weight:400; font-family:'Cairo',sans-serif; }
+  .surah-header { background:#fffbf0; border:1.5px solid #C9A84C; border-radius:10px; padding:12px 20px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; font-size:22px; font-family:'Amiri',serif; font-weight:700; color:#8a6000; }
+  .surah-meta { font-size:13px; color:#9a7030; font-weight:400; font-family:'Cairo',sans-serif; }
   .note-card { border:1px solid #e0d0b0; border-radius:10px; padding:16px 20px; margin-bottom:14px; background:#fffef8; page-break-inside:avoid; }
   .note-header { font-size:17px; font-weight:700; color:#6b4c10; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
-  .page-num { font-size:12px; color:#bbb; font-weight:400; }
-  .flabel { font-size:12px; font-weight:700; color:#C9A84C; margin-bottom:6px; }
+  .page-num { font-size:12px; color:#999; font-weight:400; }
+  .flabel { font-size:12px; font-weight:700; color:#7a5200; margin-bottom:6px; }
   .field-meaning { border-right:3px solid #C9A84C; padding-right:12px; margin-bottom:12px; }
   .meaning-text { font-size:15px; color:#222; line-height:1.9; }
   .field-masail { margin-bottom:12px; }
-  .field-reflection { border-right:3px solid #C9A84C55; padding-right:12px; margin-bottom:12px; }
-  .reflection-text { font-size:14px; color:#444; line-height:1.9; background:#fffbf0; border-radius:8px; padding:10px 14px; }
+  .field-reflection { border-right:3px solid #C9A84C88; padding-right:12px; margin-bottom:12px; }
+  .reflection-text { font-size:14px; color:#444; line-height:1.9; background:#fffbf0; border-radius:8px; padding:10px 14px; border:1px solid #e8dcc8; }
   .field-topics { margin-bottom:6px; }
   .field-tags { margin-bottom:4px; }
   ol { margin:6px 0; padding-right:20px; }
   li { margin-bottom:4px; font-size:14px; }
   @media print {
-    body { margin:0; }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body { margin:0; color:#1a1a1a; background:#ffffff; }
     .surah-section { padding:0 20px; }
-    .legend-page { min-height:auto; }
     .surah-section:not(:first-child) { page-break-before:always; }
     .note-card { page-break-inside:avoid; }
   }
@@ -420,7 +431,7 @@ function generateExportHTML(notes, surahIntros, opts = {}) {
 ${legendPage}
 <div style="padding:28px 36px 0">
 ${body}
-<p style="text-align:center;color:#ccc;font-size:11px;margin-top:40px;padding-bottom:20px">﴿ وَنَزَّلْنَا عَلَيْكَ الْكِتَابَ تِبْيَانًا لِكُلِّ شَيْءٍ ﴾</p>
+<p style="text-align:center;color:#9a7030;font-size:12px;margin-top:40px;padding-bottom:20px;font-family:'Amiri',serif">﴿ وَنَزَّلْنَا عَلَيْكَ الْكِتَابَ تِبْيَانًا لِكُلِّ شَيْءٍ ﴾</p>
 </div>
 </body>
 </html>`;
