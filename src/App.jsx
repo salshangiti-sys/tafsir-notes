@@ -529,6 +529,13 @@ function SurahIntroCard({ surahName, surahData, intro, onUpdate, apiKey }) {
 // ── Arabic ordinals ──
 const ARABIC_ORDINALS = ["الأولى","الثانية","الثالثة","الرابعة","الخامسة","السادسة","السابعة","الثامنة","التاسعة","العاشرة","الحادية عشرة","الثانية عشرة","الثالثة عشرة","الرابعة عشرة","الخامسة عشرة","السادسة عشرة","السابعة عشرة","الثامنة عشرة","التاسعة عشرة","العشرون"];
 
+// ── Masail color prefix parser ──
+function parseMasalaColor(text) {
+  const match = text.match(/^([مخدت])\s*[—–-]\s*/);
+  if (match) return { colorKey: match[1], text: text.replace(match[0], "").trim() };
+  return { colorKey: null, text };
+}
+
 // ── Masail Editor ──
 function MasailEditor({ masail, onChange }) {
   const [count, setCount] = useState(masail.length || 0);
@@ -581,8 +588,13 @@ function MasailEditor({ masail, onChange }) {
             </div>
             {/* محتوى المسألة */}
             <div style={{ flex:1 }}>
-              <div style={{ color:"#8899bb", fontSize:11, fontWeight:600, marginBottom:3 }}>
-                المسألة {ARABIC_ORDINALS[i] || (i+1)}
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+                <div style={{ color:"#8899bb", fontSize:11, fontWeight:600 }}>
+                  المسألة {ARABIC_ORDINALS[i] || (i+1)}
+                </div>
+                {masail[i] && parseMasalaColor(masail[i]).colorKey && (
+                  <HighlightBadge colorKey={parseMasalaColor(masail[i]).colorKey} size="sm" />
+                )}
               </div>
               <textarea
                 value={masail[i] ?? ""}
@@ -644,15 +656,22 @@ function NoteCard({ note, index, onDelete, onTagClick }) {
                 مسائل القرطبي
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {note.masail.map((m, i) => m?.trim() ? (
-                  <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
-                    <div style={{ flexShrink:0, width:22, height:22, borderRadius:"50%", background:"linear-gradient(135deg,#C9A84C,#a07830)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:11, color:"#fff", marginTop:2 }}>{i+1}</div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ color:"#8899bb", fontSize:11, marginBottom:2 }}>المسألة {ARABIC_ORDINALS[i]||i+1}</div>
-                      <div style={{ color:"#ccc", fontSize:13, lineHeight:1.8, background:"#0d0d1a55", borderRadius:8, padding:"6px 10px", border:"1px solid #C9A84C22" }}>{m}</div>
+                {note.masail.map((m, i) => {
+                  if (!m?.trim()) return null;
+                  const { colorKey, text } = parseMasalaColor(m);
+                  return (
+                    <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                      <div style={{ flexShrink:0, width:22, height:22, borderRadius:"50%", background:"linear-gradient(135deg,#C9A84C,#a07830)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:11, color:"#fff", marginTop:2 }}>{i+1}</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+                          <div style={{ color:"#8899bb", fontSize:11 }}>المسألة {ARABIC_ORDINALS[i]||i+1}</div>
+                          {colorKey && <HighlightBadge colorKey={colorKey} size="sm" />}
+                        </div>
+                        <div style={{ color:"#ccc", fontSize:13, lineHeight:1.8, background:"#0d0d1a55", borderRadius:8, padding:"6px 10px", border:"1px solid #C9A84C22" }}>{text}</div>
+                      </div>
                     </div>
-                  </div>
-                ) : null)}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1324,13 +1343,22 @@ function ParsedNoteCard({ note, index, onUpdate, onRemove }) {
           {note.masail?.length > 0 && (
             <div>
               <div style={{ color:"#8899bb", fontSize:11, fontWeight:600, marginBottom:6 }}>المسائل ({note.masail.length})</div>
-              {note.masail.map((m,i)=>(
-                <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:6 }}>
-                  <div style={{ width:22, height:22, borderRadius:"50%", background:"linear-gradient(135deg,#C9A84C,#a07830)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:"#fff", fontWeight:700, flexShrink:0, marginTop:6 }}>{i+1}</div>
-                  <textarea value={m} rows={2} onChange={e=>{ const next=[...note.masail]; next[i]=e.target.value; onUpdate("masail",next); }}
-                    style={{ ...textareaStyle, fontSize:13, flex:1 }} />
-                </div>
-              ))}
+              {note.masail.map((m,i)=>{
+                const { colorKey } = parseMasalaColor(m || "");
+                return (
+                  <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:6 }}>
+                    <div style={{ width:22, height:22, borderRadius:"50%", background:"linear-gradient(135deg,#C9A84C,#a07830)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:"#fff", fontWeight:700, flexShrink:0, marginTop:6 }}>{i+1}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
+                        <div style={{ color:"#8899bb", fontSize:11 }}>المسألة {ARABIC_ORDINALS[i]||i+1}</div>
+                        {colorKey && <HighlightBadge colorKey={colorKey} size="sm" />}
+                      </div>
+                      <textarea value={m} rows={2} onChange={e=>{ const next=[...note.masail]; next[i]=e.target.value; onUpdate("masail",next); }}
+                        style={{ ...textareaStyle, fontSize:13, width:"100%" }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
