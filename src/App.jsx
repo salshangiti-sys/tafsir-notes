@@ -934,10 +934,10 @@ function AyahMindMap({ note, width }) {
   const nH    = 64;   // masala node height (fixed)
   const cW    = 140, cH = 68;  // center node
   const armX  = 220;  // horiz distance: center-edge → node-center
-  const gapY  = 100;  // vert spacing between nodes on same side (Fix 3)
+  const spacing = 100;  // vert spacing between nodes on same side
 
   const maxN     = Math.max(leftData.length, rightData.length, 1);
-  const sideSpan = (maxN - 1) * gapY;
+  const sideSpan = (maxN - 1) * spacing;
   const topicsH  = topicList.length > 0 ? 80 : 28;
   const tagsH    = tagList.length   > 0 ? 70 : 22;
   const topPad   = 20;
@@ -953,15 +953,15 @@ function AyahMindMap({ note, width }) {
   const drawSide = (list, side) => {
     const isLeft = side === "left";
 
-    // Fix 3: distribute evenly around cy
-    const totalH = (list.length - 1) * gapY;
+    // Fix 1: distribute evenly around cy
+    const totalH = (list.length - 1) * spacing;
     const startY = cy - totalH / 2;
 
     // Center node edge where connector starts
     const lineFromX = isLeft ? cx - cW / 2 : cx + cW / 2;
 
     list.forEach((item, si) => {
-      const ny   = startY + si * gapY;
+      const ny   = startY + si * spacing;
       const isHov = hoverIdx === item.idx;
 
       // Fix 2: node width based on longest display line
@@ -1155,7 +1155,7 @@ function AyahMindMap({ note, width }) {
         {/* Center node */}
         <g>
           <rect x={cx-cW/2} y={cy-cH/2} width={cW} height={cH} rx={13}
-            fill="#1a1208" stroke="#C9A84C" strokeWidth={2}/>
+            fill="#2a2a3a" stroke="#C9A84C" strokeWidth={2}/>
           <text x={cx} y={cy-10} textAnchor="middle"
             fill="#C9A84C" fontSize={14} fontWeight="700" fontFamily="Amiri,serif">{note.surah}</text>
           <text x={cx} y={cy+11} textAnchor="middle"
@@ -1165,7 +1165,18 @@ function AyahMindMap({ note, width }) {
         {/* Masail nodes */}
         {nodeEls}
 
-        {/* Legend */}
+        {/* Legend background */}
+        <rect
+          x={legendStartX - 12}
+          y={legendY - 14}
+          width={legendTotalW + 24}
+          height={22}
+          rx={8}
+          fill="#13132a"
+          stroke="#2a2a4a"
+          strokeWidth={1}
+        />
+        {/* Legend text */}
         {LEGEND_PARTS.map((lp, i) => (
           <text key={i}
             x={legendStartX + i*(partW+partGap) + partW/2}
@@ -1216,15 +1227,37 @@ function MindMapView({ notes, surahIntros }) {
   useEffect(()=>{ if(!selSurah && surahsWithNotes.length) setSelSurah(surahsWithNotes[0]); },[notes]);
   useEffect(()=>{ setSelNoteIdx(0); },[selSurah, mapType]);
 
-  const exportPNG = () => {
+  const exportSVG = () => {
     const svg = containerRef.current?.querySelector("svg");
     if (!svg) return;
-    const data = new XMLSerializer().serializeToString(svg);
-    const blob = new Blob([data], {type:"image/svg+xml"});
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href=url; a.download=`خريطة-${selSurah||"الآية"}.svg`; a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const bbox = svg.getBBox();
+      const padding = 40;
+      const clone = svg.cloneNode(true);
+      clone.setAttribute("viewBox",
+        `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + padding*2} ${bbox.height + padding*2}`
+      );
+      clone.setAttribute("width",  bbox.width  + padding*2);
+      clone.setAttribute("height", bbox.height + padding*2);
+      const data = new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([data], { type:"image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url;
+      a.download = `خريطة-${selSurah||"الآية"}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // fallback: export as-is
+      const data = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([data], { type:"image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url;
+      a.download = `خريطة-${selSurah||"الآية"}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   if (surahsWithNotes.length===0) return (
@@ -1263,7 +1296,7 @@ function MindMapView({ notes, surahIntros }) {
         )}
 
         {/* تصدير */}
-        <button onClick={exportPNG}
+        <button onClick={exportSVG}
           style={{ background:"transparent", color:"#C9A84C", border:"1px solid #C9A84C55", borderRadius:8, padding:"5px 12px", cursor:"pointer", fontFamily:"inherit", fontSize:12, marginRight:"auto" }}>
           ⬇ تصدير SVG
         </button>
