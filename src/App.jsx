@@ -929,13 +929,12 @@ function AyahMindMap({ note, width }) {
 
   // ── Layout constants ──
   // Use a virtual width of at least 900 for the layout, then scale via viewBox
-  const svgW   = Math.max(width, 900);
-  const cx     = Math.round(svgW / 2);
-  const nW     = 172, nH = 62;       // masala node
-  const cW     = 140, cH = 68;       // center node
-  const armX   = 220;                // horiz distance center→node-center
-  const leafDX = 160;                // extra distance from arm to leaf (topics/tags)
-  const gapY   = 90;                 // vert gap between nodes on same side
+  const svgW  = Math.max(width, 900);
+  const cx    = Math.round(svgW / 2);
+  const nH    = 64;   // masala node height (fixed)
+  const cW    = 140, cH = 68;  // center node
+  const armX  = 220;  // horiz distance: center-edge → node-center
+  const gapY  = 100;  // vert spacing between nodes on same side (Fix 3)
 
   const maxN     = Math.max(leftData.length, rightData.length, 1);
   const sideSpan = (maxN - 1) * gapY;
@@ -948,62 +947,83 @@ function AyahMindMap({ note, width }) {
   const svgH = cy + Math.max(sideSpan / 2, cH / 2) + tagsH + legendH + topPad;
 
   // ── Build masail paths + nodes ──
-  const pathEls  = [];
-  const nodeEls  = [];
+  const pathEls = [];
+  const nodeEls = [];
 
   const drawSide = (list, side) => {
     const isLeft = side === "left";
-    const nodeCX = isLeft ? cx - armX : cx + armX;      // center-x of the node rect
-    const nodeX  = nodeCX - nW / 2;                     // left edge of rect
-    const fromX  = isLeft ? cx - cW / 2 : cx + cW / 2; // where line starts on center node
-    const cpX    = isLeft ? cx - armX * 0.55 : cx + armX * 0.55;
-    const startY = cy - ((list.length - 1) * gapY) / 2;
+
+    // Fix 3: distribute evenly around cy
+    const totalH = (list.length - 1) * gapY;
+    const startY = cy - totalH / 2;
+
+    // Center node edge where connector starts
+    const lineFromX = isLeft ? cx - cW / 2 : cx + cW / 2;
 
     list.forEach((item, si) => {
-      const ny = startY + si * gapY;
+      const ny   = startY + si * gapY;
       const isHov = hoverIdx === item.idx;
 
-      // Curved connector
+      // Fix 2: node width based on longest display line
+      const longest = Math.max(item.disp.line1.length, (item.disp.line2 || "").length);
+      const nW = Math.max(160, longest * 14 + 60);  // 60 = badge + padding
+
+      // Node x: place node center at cx ± armX from center-node edge
+      const nodeCX  = isLeft ? cx - cW/2 - armX : cx + cW/2 + armX;
+      const nodeX   = nodeCX - nW / 2;    // left edge
+      const nodeRX  = nodeCX + nW / 2;    // right edge
+
+      // Fix 1: connector goes center-node-EDGE → masail-node-EDGE (not center)
+      const lineToX  = isLeft ? nodeRX : nodeX;  // near edge of masail node
+      const cpX      = (lineFromX + lineToX) / 2;
+
       pathEls.push(
         <path key={`p${item.idx}`}
-          d={`M${fromX},${cy} C${cpX},${cy} ${cpX},${ny} ${nodeCX},${ny}`}
-          fill="none" stroke={item.st.stroke} strokeWidth={1.6} strokeOpacity={0.55}/>
+          d={`M${lineFromX},${cy} C${cpX},${cy} ${cpX},${ny} ${lineToX},${ny}`}
+          fill="none" stroke={item.st.stroke} strokeWidth={1.6} strokeOpacity={0.6}/>
       );
 
-      // Badge position: top-left of node (consistent)
-      const badgeX = nodeX + 4;
-      const badgeY = ny - nH/2 + 3;
+      // Badge: top-left corner of node
+      const badgeX = nodeX + 6;
+      const badgeY = ny - nH/2 + 5;
+      // Text: centered in node, shifted right of badge
+      const textX  = nodeX + nW/2 + (item.colorKey ? 10 : 0);
 
       nodeEls.push(
         <g key={`n${item.idx}`}
           onMouseEnter={() => setHoverIdx(item.idx)}
           onMouseLeave={() => setHoverIdx(null)}>
-          {/* Node box — style.fill uses CSS Color 4 parsing so 8-digit hex alpha works */}
+          {/* Node box — style.fill uses CSS Color 4 so 8-digit hex alpha works */}
           <rect x={nodeX} y={ny-nH/2} width={nW} height={nH} rx={11}
             style={{ fill: item.st.cssFill }}
             stroke={item.st.stroke} strokeOpacity={isHov ? 1 : item.st.strokeOp}
             strokeWidth={isHov ? 2 : 1}/>
-          {/* Color badge */}
+          {/* Color badge (top-left) */}
           {item.colorKey && <>
-            <rect x={badgeX} y={badgeY} width={18} height={18} rx={5}
+            <rect x={badgeX} y={badgeY} width={20} height={20} rx={5}
               fill={item.st.badge} opacity={0.9}/>
-            <text x={badgeX+9} y={badgeY+13} textAnchor="middle"
+            <text x={badgeX+10} y={badgeY+14} textAnchor="middle"
               fill="#111" fontSize={11} fontWeight="700" fontFamily="Cairo,serif">{item.colorKey}</text>
           </>}
-          {/* Display text */}
-          <text x={nodeCX} y={ny - (item.disp.line2 ? 8 : 1)} textAnchor="middle"
+          {/* Display text — clipped inside node */}
+          <clipPath id={`clip${item.idx}`}>
+            <rect x={nodeX+2} y={ny-nH/2+2} width={nW-4} height={nH-4}/>
+          </clipPath>
+          <text x={textX} y={ny - (item.disp.line2 ? 9 : 0)} textAnchor="middle"
+            clipPath={`url(#clip${item.idx})`}
             fill={item.st.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
           {item.disp.line2 && (
-            <text x={nodeCX} y={ny + 10} textAnchor="middle"
+            <text x={textX} y={ny + 11} textAnchor="middle"
+              clipPath={`url(#clip${item.idx})`}
               fill={item.st.text} fontSize={11} fontFamily="Cairo,serif">{item.disp.line2}</text>
           )}
-          {/* Pencil edit icon on hover */}
+          {/* Pencil icon on hover */}
           {isHov && (
             <g style={{ cursor:"pointer" }}
               onClick={e => { e.stopPropagation(); setEditDraft(item.disp); setEditingIdx(item.idx); }}>
-              <circle cx={nodeX + nW - 11} cy={ny + nH/2 - 11} r={9}
+              <circle cx={nodeX + nW - 13} cy={ny + nH/2 - 12} r={10}
                 fill="#1a1a2e" stroke={item.st.stroke} strokeWidth={1}/>
-              <text x={nodeX + nW - 11} y={ny + nH/2 - 7} textAnchor="middle"
+              <text x={nodeX + nW - 13} y={ny + nH/2 - 8} textAnchor="middle"
                 fill={item.st.stroke} fontSize={10} fontFamily="Arial">✎</text>
             </g>
           )}
