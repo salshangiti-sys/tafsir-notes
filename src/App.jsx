@@ -530,10 +530,10 @@ function SurahIntroCard({ surahName, surahData, intro, onUpdate, apiKey }) {
 const ARABIC_ORDINALS = ["الأولى","الثانية","الثالثة","الرابعة","الخامسة","السادسة","السابعة","الثامنة","التاسعة","العاشرة","الحادية عشرة","الثانية عشرة","الثالثة عشرة","الرابعة عشرة","الخامسة عشرة","السادسة عشرة","السابعة عشرة","الثامنة عشرة","التاسعة عشرة","العشرون"];
 
 // ── Masail color prefix parser ──
-function parseMasalaColor(text) {
+function parseMasalaColor(text = "") {
   const match = text.match(/^([مخدت])\s*[—–-]\s*/);
-  if (match) return { colorKey: match[1], text: text.replace(match[0], "").trim() };
-  return { colorKey: null, text };
+  if (match) return { colorKey: match[1], text: text.slice(match[0].length).trim() };
+  return { colorKey: null, text: text.trim() };
 }
 
 // ── Masail Editor ──
@@ -1361,7 +1361,7 @@ function ParsedNoteCard({ note, index, onUpdate, onRemove }) {
             <div>
               <div style={{ color:"#8899bb", fontSize:11, fontWeight:600, marginBottom:6 }}>المسائل ({note.masail.length})</div>
               {note.masail.map((m,i)=>{
-                const { colorKey } = parseMasalaColor(m || "");
+                const { colorKey, text } = parseMasalaColor(m || "");
                 return (
                   <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:6 }}>
                     <div style={{ width:22, height:22, borderRadius:"50%", background:"linear-gradient(135deg,#C9A84C,#a07830)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:"#fff", fontWeight:700, flexShrink:0, marginTop:6 }}>{i+1}</div>
@@ -1370,7 +1370,7 @@ function ParsedNoteCard({ note, index, onUpdate, onRemove }) {
                         <div style={{ color:"#8899bb", fontSize:11 }}>المسألة {ARABIC_ORDINALS[i]||i+1}</div>
                         {colorKey && <HighlightBadge colorKey={colorKey} size="sm" />}
                       </div>
-                      <textarea value={m} rows={2} onChange={e=>{ const next=[...note.masail]; next[i]=e.target.value; onUpdate("masail",next); }}
+                      <textarea value={text} rows={2} onChange={e=>{ const next=[...note.masail]; next[i]= colorKey ? `${colorKey} — ${e.target.value}` : e.target.value; onUpdate("masail",next); }}
                         style={{ ...textareaStyle, fontSize:13, width:"100%" }} />
                     </div>
                   </div>
