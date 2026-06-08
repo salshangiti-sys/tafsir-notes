@@ -872,74 +872,277 @@ function SurahMindMap({ surahName, notes, intro, width }) {
 
 // ── خريطة الآية ──
 function AyahMindMap({ note, width }) {
-  const [active, setActive] = useState(null);
-  const cx = width/2, cy = 210;
+  const [displayOverrides, setDisplayOverrides] = useState({});
+  const [editingIdx, setEditingIdx]             = useState(null);
+  const [editDraft,  setEditDraft]              = useState({ line1:"", line2:"" });
+  const [hoverIdx,   setHoverIdx]               = useState(null);
 
-  const masailList = (note.masail||[]).filter(m=>m?.trim());
-  const topicList  = (note.topics||[]);
-  const tagList    = (note.tags||[]);
+  // Clear overrides when note changes
+  useEffect(() => { setDisplayOverrides({}); setEditingIdx(null); }, [note.surah, note.ayahFrom, note.ayahTo]);
 
-  const branches = [
-    { key:"meaning",    label:"المعنى",       color:"#64DFDF",           children: note.meaning ? [note.meaning.slice(0,40)+"…"] : [],    angle:-150 },
-    { key:"masail",     label:"المسائل",       color:MM_COLORS.masail,    children: masailList.map((m,i)=>`${i+1}. ${m.slice(0,28)}…`),    angle:-90  },
-    { key:"reflection", label:"الفوائد",       color:MM_COLORS.reflection,children: note.reflection ? [note.reflection.slice(0,40)+"…"] : [], angle:30  },
-    { key:"topics",     label:"الموضوعات",     color:MM_COLORS.topics,    children: topicList,                                              angle:90   },
-    { key:"tags",       label:"الوسوم",         color:MM_COLORS.tags,      children: tagList.map(t=>"#"+t),                                  angle:150  },
-  ].filter(b=>b.children.length>0);
+  const masailList = (note.masail || []).filter(m => m?.trim());
+  const topicList  = (note.topics || []);
+  const tagList    = (note.tags   || []);
+  const ayah = note.ayahFrom === note.ayahTo ? note.ayahFrom : `${note.ayahFrom}–${note.ayahTo}`;
 
-  const svgH = Math.max(440, branches.length * 80 + 100);
+  // Per-type color style
+  const MS = {
+    م: { fill:"#FFF27533", stroke:"#FFF275", text:"#8a8600", badge:"#FFF275" },
+    خ: { fill:"#D6B4FC33", stroke:"#D6B4FC", text:"#5a1f8a", badge:"#D6B4FC" },
+    د: { fill:"#A3E63533", stroke:"#A3E635", text:"#3d6600", badge:"#A3E635" },
+    ت: { fill:"#FF9F1C33", stroke:"#FF9F1C", text:"#7a4000", badge:"#FF9F1C" },
+  };
+  const DS = { fill:"#1a1a2e", stroke:"#555577", text:"#aaa", badge:"#555577" };
 
-  const left  = branches.filter((_,i)=>i%2===0);
-  const right = branches.filter((_,i)=>i%2===1);
+  const parseMC = (txt = "") => {
+    const m = txt.match(/^([مخدت])\s*[—–-]\s*/);
+    return m ? { colorKey:m[1], text:txt.slice(m[0].length).trim() } : { colorKey:null, text:txt.trim() };
+  };
 
-  const paths=[]; const nodes=[];
+  const getDisp = (idx, parsedText) => {
+    if (displayOverrides[idx]) return displayOverrides[idx];
+    const words = parsedText.split(" ");
+    return { line1: words.slice(0,2).join(" "), line2: words.slice(2,4).join(" ") };
+  };
 
-  function drawSide(list, side) {
-    const isLeft = side==="left";
-    const armX   = isLeft ? cx-120 : cx+120;
-    const spread = Math.min(110, (svgH-80)/Math.max(list.length,1));
-    const startY = cy - ((list.length-1)*spread)/2;
-    list.forEach((branch,i) => {
-      const armY  = startY + i*spread;
-      const leafX = isLeft ? armX-130 : armX+130;
-      paths.push(<CurvedPath key={`arm-${side}-${i}`} x1={cx} y1={cy} x2={armX} y2={armY} color={branch.color} width={2} opacity={active&&active!==branch.key?0.1:0.7}/>);
-      nodes.push(<MapNode key={`lbl-${side}-${i}`} x={armX} y={armY} text={branch.label} color={branch.color} bold fontSize={12} maxW={85}
-        highlight={active===branch.key} dimmed={active&&active!==branch.key} onClick={()=>setActive(active===branch.key?null:branch.key)}/>);
-      const cStep  = 40;
-      const cStart = armY - ((branch.children.length-1)*cStep)/2;
-      branch.children.forEach((c,j)=>{
-        const cy2 = cStart+j*cStep;
-        paths.push(<CurvedPath key={`c-${side}-${i}-${j}`} x1={armX} y1={armY} x2={leafX} y2={cy2} color={branch.color} opacity={active&&active!==branch.key?0.06:0.35}/>);
-        nodes.push(<MapNode key={`leaf-${side}-${i}-${j}`} x={leafX} y={cy2} text={c} color={branch.color} fontSize={10} maxW={95}
-          dimmed={active&&active!==branch.key}/>);
-      });
+  const masailData = masailList.map((m, i) => {
+    const p  = parseMC(m);
+    const st = MS[p.colorKey] || DS;
+    return { ...p, st, disp: getDisp(i, p.text), idx: i };
+  });
+
+  // odd 1-based (0,2,4…) → left;  even 1-based (1,3,5…) → right
+  const leftData  = masailData.filter((_,i) => i%2===0);
+  const rightData = masailData.filter((_,i) => i%2===1);
+
+  // ── Layout constants ──
+  const cx     = Math.round(width / 2);
+  const nW     = 162, nH = 60;       // masala node
+  const cW     = 134, cH = 68;       // center node
+  const armX   = 185;                // horiz distance center→node-center
+  const gapY   = 88;                 // vert gap between nodes on same side
+
+  const maxN     = Math.max(leftData.length, rightData.length, 1);
+  const sideSpan = (maxN - 1) * gapY;
+  const topicsH  = topicList.length > 0 ? 68 : 28;
+  const tagsH    = tagList.length   > 0 ? 62 : 22;
+  const topPad   = 18;
+  const legendH  = 26;
+
+  const cy   = topPad + topicsH + Math.max(sideSpan / 2, cH / 2) + 12;
+  const svgH = cy + Math.max(sideSpan / 2, cH / 2) + tagsH + legendH + topPad;
+
+  // ── Build masail paths + nodes ──
+  const pathEls  = [];
+  const nodeEls  = [];
+
+  const drawSide = (list, side) => {
+    const isLeft = side === "left";
+    const nodeCX = isLeft ? cx - armX : cx + armX;      // center-x of the node rect
+    const nodeX  = nodeCX - nW / 2;                     // left edge of rect
+    const fromX  = isLeft ? cx - cW / 2 : cx + cW / 2; // where line starts on center node
+    const cpX    = isLeft ? cx - armX * 0.55 : cx + armX * 0.55;
+    const startY = cy - ((list.length - 1) * gapY) / 2;
+
+    list.forEach((item, si) => {
+      const ny = startY + si * gapY;
+      const isHov = hoverIdx === item.idx;
+
+      // Curved connector
+      pathEls.push(
+        <path key={`p${item.idx}`}
+          d={`M${fromX},${cy} C${cpX},${cy} ${cpX},${ny} ${nodeCX},${ny}`}
+          fill="none" stroke={item.st.stroke} strokeWidth={1.6} strokeOpacity={0.55}/>
+      );
+
+      // Badge position: top-left of node (consistent)
+      const badgeX = nodeX + 4;
+      const badgeY = ny - nH/2 + 3;
+
+      nodeEls.push(
+        <g key={`n${item.idx}`}
+          onMouseEnter={() => setHoverIdx(item.idx)}
+          onMouseLeave={() => setHoverIdx(null)}>
+          {/* Node box */}
+          <rect x={nodeX} y={ny-nH/2} width={nW} height={nH} rx={11}
+            fill={item.st.fill} stroke={item.st.stroke}
+            strokeWidth={isHov ? 2 : 1} strokeOpacity={isHov ? 1 : 0.65}/>
+          {/* Color badge */}
+          {item.colorKey && <>
+            <rect x={badgeX} y={badgeY} width={18} height={18} rx={5}
+              fill={item.st.badge} opacity={0.9}/>
+            <text x={badgeX+9} y={badgeY+13} textAnchor="middle"
+              fill="#111" fontSize={11} fontWeight="700" fontFamily="Cairo,serif">{item.colorKey}</text>
+          </>}
+          {/* Display text */}
+          <text x={nodeCX} y={ny - (item.disp.line2 ? 8 : 1)} textAnchor="middle"
+            fill={item.st.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
+          {item.disp.line2 && (
+            <text x={nodeCX} y={ny + 10} textAnchor="middle"
+              fill={item.st.text} fontSize={11} fontFamily="Cairo,serif">{item.disp.line2}</text>
+          )}
+          {/* Pencil edit icon on hover */}
+          {isHov && (
+            <g style={{ cursor:"pointer" }}
+              onClick={e => { e.stopPropagation(); setEditDraft(item.disp); setEditingIdx(item.idx); }}>
+              <circle cx={nodeX + nW - 11} cy={ny + nH/2 - 11} r={9}
+                fill="#1a1a2e" stroke={item.st.stroke} strokeWidth={1}/>
+              <text x={nodeX + nW - 11} y={ny + nH/2 - 7} textAnchor="middle"
+                fill={item.st.stroke} fontSize={10} fontFamily="Arial">✎</text>
+            </g>
+          )}
+        </g>
+      );
     });
-  }
-  drawSide(left,"left");
-  drawSide(right,"right");
+  };
 
-  const ayah = note.ayahFrom===note.ayahTo ? note.ayahFrom : `${note.ayahFrom}–${note.ayahTo}`;
+  drawSide(leftData,  "left");
+  drawSide(rightData, "right");
+
+  // ── Topics (top, dashed blue) ──
+  const tLabelY = topPad + 14;
+  const tPillY  = tLabelY + 18;
+  const maxPills = Math.max(1, Math.floor((width - 80) / 98));
+  const showTopics = topicList.slice(0, maxPills);
+
+  const topicsEl = topicList.length > 0 && (
+    <g key="topics">
+      <line x1={cx} y1={tPillY + 22} x2={cx} y2={cy - cH/2}
+        stroke="#4A90D9" strokeWidth={1.4} strokeDasharray="5,4" strokeOpacity={0.5}/>
+      <text x={cx} y={tLabelY} textAnchor="middle"
+        fill="#4A90D9" fontSize={11} fontWeight="600" fontFamily="Cairo,serif">▲ الموضوعات</text>
+      {showTopics.map((t, i) => {
+        const cat = TOPICS.find(c => c.items.includes(t));
+        const col = cat?.color || "#4A90D9";
+        const pw  = Math.floor((width - 80) / showTopics.length) - 6;
+        const px  = cx - (showTopics.length * (pw + 6) - 6) / 2 + i * (pw + 6);
+        return (
+          <g key={t}>
+            <rect x={px} y={tPillY} width={pw} height={20} rx={10}
+              fill={col+"22"} stroke={col+"77"} strokeWidth={1}/>
+            <text x={px + pw/2} y={tPillY + 13} textAnchor="middle"
+              fill={col} fontSize={9.5} fontFamily="Cairo,serif">{t.slice(0, 9)}</text>
+          </g>
+        );
+      })}
+      {topicList.length > maxPills && (
+        <text x={cx + (maxPills * 52) / 2 + 12} y={tPillY + 14}
+          fill="#4A90D966" fontSize={10} fontFamily="Cairo,serif">+{topicList.length - maxPills}</text>
+      )}
+    </g>
+  );
+
+  // ── Tags (bottom, dashed grey) ──
+  const tagsBaseY = cy + Math.max(sideSpan / 2, cH / 2) + 18;
+  const tagsLabelY = tagsBaseY + 14;
+  const tagPillY   = tagsLabelY + 16;
+
+  const tagsEl = tagList.length > 0 && (
+    <g key="tags">
+      <line x1={cx} y1={cy + cH/2} x2={cx} y2={tagsBaseY}
+        stroke="#8899bb" strokeWidth={1.4} strokeDasharray="5,4" strokeOpacity={0.5}/>
+      <text x={cx} y={tagsLabelY} textAnchor="middle"
+        fill="#8899bb" fontSize={11} fontWeight="600" fontFamily="Cairo,serif">▼ الوسوم</text>
+      {tagList.slice(0, 6).map((t, i) => {
+        const tw = 72, tgap = 6;
+        const total = Math.min(tagList.length, 6);
+        const px = cx - (total * (tw + tgap) - tgap) / 2 + i * (tw + tgap);
+        return (
+          <g key={t}>
+            <rect x={px} y={tagPillY} width={tw} height={20} rx={10}
+              fill="#8899bb22" stroke="#8899bb44" strokeWidth={1}/>
+            <text x={px + tw/2} y={tagPillY + 13} textAnchor="middle"
+              fill="#8899bb" fontSize={9.5} fontFamily="Cairo,serif">#{t.slice(0, 7)}</text>
+          </g>
+        );
+      })}
+    </g>
+  );
+
+  // ── Legend ──
+  const legendY = svgH - 9;
+  const LEGEND_PARTS = [
+    {txt:"م — أحكام", col:"#FFF275"}, {txt:"|", col:"#333"},
+    {txt:"د — أدلة",  col:"#A3E635"}, {txt:"|", col:"#333"},
+    {txt:"خ — خلاصة", col:"#D6B4FC"}, {txt:"|", col:"#333"},
+    {txt:"ت — تربوية",col:"#FF9F1C"}, {txt:"|", col:"#333"},
+    {txt:"✎ اضغط للتعديل", col:"#666"},
+  ];
+  // measure legend
+  const partW = 80, partGap = 4;
+  const legendTotalW = LEGEND_PARTS.length * (partW + partGap) - partGap;
+  const legendStartX = cx - legendTotalW / 2;
+
+  const saveEdit = () => { setDisplayOverrides(p => ({...p, [editingIdx]: editDraft})); setEditingIdx(null); };
 
   return (
-    <svg width={width} height={svgH} style={{ display:"block", overflow:"visible" }}>
-      <defs>
-        <radialGradient id="ayahGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#C9A84C" stopOpacity="0.25"/>
-          <stop offset="100%" stopColor="#C9A84C" stopOpacity="0"/>
-        </radialGradient>
-      </defs>
-      <circle cx={cx} cy={cy} r={75} fill="url(#ayahGlow)"/>
-      {paths}
-      <g onClick={()=>setActive(null)} style={{ cursor:"pointer" }}>
-        <circle cx={cx} cy={cy} r={52} fill="#0d0d1a" stroke="#C9A84C" strokeWidth={2}/>
-        <text x={cx} y={cy-14} textAnchor="middle" fill="#C9A84C" fontSize={13} fontWeight="700" fontFamily="Amiri,serif">{note.surah}</text>
-        <text x={cx} y={cy+4}  textAnchor="middle" fill="#aaa"     fontSize={12} fontFamily="Cairo,serif">آية {ayah}</text>
-        {note.colorKeys?.length>0 && (
-          <text x={cx} y={cy+20} textAnchor="middle" fill="#666" fontSize={10} fontFamily="Cairo,serif">{note.colorKeys.join(" · ")}</text>
-        )}
-      </g>
-      {nodes}
-    </svg>
+    <div style={{ position:"relative" }}>
+      <svg width={width} height={svgH} style={{ display:"block", overflow:"visible", fontFamily:"Cairo,serif" }}>
+        <defs>
+          <radialGradient id={`ag-${note.surah}-${ayah}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#C9A84C" stopOpacity="0.18"/>
+            <stop offset="100%" stopColor="#C9A84C" stopOpacity="0"/>
+          </radialGradient>
+        </defs>
+
+        {/* Glow */}
+        <ellipse cx={cx} cy={cy} rx={90} ry={55} fill={`url(#ag-${note.surah}-${ayah})`}/>
+
+        {/* Paths behind nodes */}
+        {pathEls}
+
+        {/* Topics */}
+        {topicsEl}
+
+        {/* Tags */}
+        {tagsEl}
+
+        {/* Center node */}
+        <g>
+          <rect x={cx-cW/2} y={cy-cH/2} width={cW} height={cH} rx={13}
+            fill="#1a1208" stroke="#C9A84C" strokeWidth={2}/>
+          <text x={cx} y={cy-10} textAnchor="middle"
+            fill="#C9A84C" fontSize={14} fontWeight="700" fontFamily="Amiri,serif">{note.surah}</text>
+          <text x={cx} y={cy+11} textAnchor="middle"
+            fill="#C9A84C99" fontSize={12} fontFamily="Cairo,serif">آية {ayah}</text>
+        </g>
+
+        {/* Masail nodes */}
+        {nodeEls}
+
+        {/* Legend */}
+        {LEGEND_PARTS.map((lp, i) => (
+          <text key={i}
+            x={legendStartX + i*(partW+partGap) + partW/2}
+            y={legendY} textAnchor="middle"
+            fill={lp.col} fontSize={9.5} fontFamily="Cairo,serif">{lp.txt}</text>
+        ))}
+      </svg>
+
+      {/* Edit overlay */}
+      {editingIdx !== null && (
+        <div style={{ position:"absolute", inset:0, background:"#000000aa", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:12, zIndex:10 }}
+          onClick={() => setEditingIdx(null)}>
+          <div style={{ background:"#1a1a2e", border:"1px solid #C9A84C55", borderRadius:14, padding:22, maxWidth:290, width:"90%", direction:"rtl" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ color:"#C9A84C", fontWeight:700, fontSize:13, marginBottom:6 }}>✎ تعديل نص العقدة</div>
+            <div style={{ color:"#555", fontSize:11, marginBottom:14, lineHeight:1.7 }}>تعديل نص العقدة فقط — المسألة الأصلية لا تتغير</div>
+            <input value={editDraft.line1} maxLength={10} placeholder="السطر الأول (10 أحرف)"
+              onChange={e => setEditDraft(p=>({...p, line1:e.target.value}))}
+              style={{ background:"#0d0d1a", border:"1px solid #2a2a4a", borderRadius:8, color:"#e0e0e0", padding:"7px 11px", fontSize:13, fontFamily:"inherit", outline:"none", width:"100%", marginBottom:8, boxSizing:"border-box" }}/>
+            <input value={editDraft.line2} maxLength={10} placeholder="السطر الثاني (اختياري)"
+              onChange={e => setEditDraft(p=>({...p, line2:e.target.value}))}
+              style={{ background:"#0d0d1a", border:"1px solid #2a2a4a", borderRadius:8, color:"#e0e0e0", padding:"7px 11px", fontSize:13, fontFamily:"inherit", outline:"none", width:"100%", marginBottom:16, boxSizing:"border-box" }}/>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={() => setEditingIdx(null)}
+                style={{ background:"transparent", color:"#777", border:"1px solid #333", borderRadius:8, padding:"5px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>إلغاء</button>
+              <button onClick={saveEdit}
+                style={{ background:"linear-gradient(135deg,#C9A84C,#a07830)", color:"#fff", border:"none", borderRadius:8, padding:"5px 16px", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:12 }}>حفظ</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
