@@ -260,74 +260,168 @@ const SURAH_DEFAULT_TOPICS = {
 };
 
 // ── Export HTML generator ──
-function generateExportHTML(notes, surahIntros) {
+function generateExportHTML(notes, surahIntros, opts = {}) {
+  const {
+    includeMeaning    = true,
+    includeMasail     = true,
+    includeReflection = true,
+    includeTopicsTags = true,
+    includePageNums   = true,
+  } = opts;
+
+  // ── Color helpers ──
+  const MASALA_BG = { م:"#FFF27533", خ:"#D6B4FC33", د:"#A3E63533", ت:"#FF9F1C33" };
+  const MASALA_BORDER = { م:"#FFF27588", خ:"#D6B4FC88", د:"#A3E63588", ت:"#FF9F1C88" };
+  const MASALA_COLOR  = { م:"#7a6400", خ:"#5a1f8a", د:"#3d6600", ت:"#7a4000" };
+
+  // ── Legend page ──
+  const colorCards = COLOR_SYSTEM.map(cs => `
+    <div class="legend-color-card" style="background:${cs.color}33;border:1px solid ${cs.color}88;border-radius:10px;padding:10px 14px;flex:1;min-width:120px">
+      <div style="font-size:18px;font-weight:700;color:${cs.dark || "#333"}">${cs.key}</div>
+      <div style="font-size:13px;font-weight:600;margin-top:2px">${cs.label}</div>
+      <div style="font-size:11px;color:#666;margin-top:4px">${cs.desc || ""}</div>
+    </div>`).join("");
+
+  const topicPills = TOPICS.map(cat => {
+    const pills = cat.items.map(t =>
+      `<span style="display:inline-block;background:${cat.color}22;border:1px solid ${cat.color}55;color:${cat.color};border-radius:20px;padding:2px 10px;font-size:11px;margin:2px 3px">${t}</span>`
+    ).join("");
+    return `<div style="margin-bottom:8px"><span style="font-size:11px;font-weight:700;color:#888;display:block;margin-bottom:3px">${cat.category}</span>${pills}</div>`;
+  }).join("");
+
+  const legendPage = `
+  <div class="legend-page" style="background:#1a1208;color:#e8d5a0;padding:32px 36px;border-radius:0;min-height:100vh;page-break-after:always">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-family:'Amiri',serif;font-size:28px;font-weight:700;color:#C9A84C;margin-bottom:6px">📖 مفكرة التفسير — القرطبي</div>
+      <div style="font-size:13px;color:#888">تصدير بتاريخ ${new Date().toLocaleDateString("ar-SA")} · ${notes.length} ملاحظة</div>
+      <div style="margin-top:10px;border-top:1px solid #C9A84C44;padding-top:10px;font-size:12px;color:#C9A84C99">﴿ وَنَزَّلْنَا عَلَيْكَ الْكِتَابَ تِبْيَانًا لِكُلِّ شَيْءٍ ﴾</div>
+    </div>
+
+    <div style="margin-bottom:24px">
+      <div style="font-size:14px;font-weight:700;color:#C9A84C;margin-bottom:12px;border-right:3px solid #C9A84C;padding-right:10px">نظام الألوان الأربعة</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">${colorCards}</div>
+    </div>
+
+    <div style="margin-bottom:24px">
+      <div style="font-size:14px;font-weight:700;color:#C9A84C;margin-bottom:12px;border-right:3px solid #C9A84C;padding-right:10px">الموضوعات القرآنية</div>
+      <div style="background:#ffffff11;border-radius:10px;padding:14px 16px">${topicPills}</div>
+    </div>
+
+    <div>
+      <div style="font-size:14px;font-weight:700;color:#C9A84C;margin-bottom:8px;border-right:3px solid #C9A84C;padding-right:10px">الوسوم</div>
+      <div style="font-size:12px;color:#aaa">أسماء أعلام، مصطلحات، أو كلمات مفتاحية مسبوقة بـ <span style="background:#33333388;border-radius:6px;padding:1px 7px;font-family:monospace">#</span></div>
+    </div>
+  </div>`;
+
+  // ── Notes pages ──
   const surahsWithNotes = [...new Set(notes.map(n => n.surah))];
   let body = "";
   for (const surahName of surahsWithNotes) {
     const surahNotes = notes.filter(n => n.surah === surahName);
     const surahData  = SURAHS.find(s => s.name === surahName);
-    const intro      = surahIntros[surahName];
     body += `<div class="surah-section">
-      <h2 class="surah-title">${surahName} &nbsp;<span class="surah-meta">${surahData?.revelation ?? ""} · ${surahData?.verses ?? ""} آية</span></h2>`;
+      <div class="surah-header">
+        <span class="surah-name">${surahName}</span>
+        <span class="surah-meta">${surahData?.revelation ?? ""} · ${surahData?.verses ?? ""} آية</span>
+      </div>`;
 
     for (const note of surahNotes) {
       const ayah = note.ayahFrom === note.ayahTo ? note.ayahFrom : `${note.ayahFrom}–${note.ayahTo}`;
-      const colorBadges = (note.colorKeys || []).map(k => {
-        const cs = COLOR_SYSTEM.find(c => c.key === k);
-        return cs ? `<span class="badge" style="background:${cs.color};color:#111">${cs.key} · ${cs.label}</span>` : "";
-      }).join(" ");
-      const masailRows = (note.masail || []).filter(m => m?.trim()).map((m, i) =>
-        `<li><strong>المسألة ${ARABIC_ORDINALS[i] || i+1}:</strong> ${m}</li>`
-      ).join("");
+      const pageStr = (includePageNums && note.page) ? `<span class="page-num">ص ${note.page}</span>` : "";
+
+      // masail with color-coded rows
+      const masailRows = includeMasail ? (note.masail || []).filter(m => m?.trim()).map((m, i) => {
+        const { colorKey, text } = (() => {
+          const match = m.match(/^([مخدت])\s*[—–-]\s*/);
+          return match ? { colorKey: match[1], text: m.slice(match[0].length).trim() } : { colorKey: null, text: m.trim() };
+        })();
+        const bg  = colorKey ? MASALA_BG[colorKey]     : "#f5f5f533";
+        const br  = colorKey ? MASALA_BORDER[colorKey] : "#ccc";
+        const col = colorKey ? MASALA_COLOR[colorKey]  : "#555";
+        const badge = colorKey ? `<span style="background:${COLOR_SYSTEM.find(c=>c.key===colorKey)?.color||"#eee"};color:#111;border-radius:12px;padding:1px 8px;font-size:11px;font-weight:700;margin-left:6px">${colorKey}</span>` : "";
+        return `<div class="masala-row" style="background:${bg};border:1px solid ${br};border-radius:8px;padding:7px 12px;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px">
+          <span style="color:#aaa;font-size:11px;min-width:20px;padding-top:2px">${ARABIC_ORDINALS[i] || i+1}</span>
+          <div style="flex:1;color:#222;font-size:14px;line-height:1.8">${badge}${text}</div>
+        </div>`;
+      }).join("") : "";
+
+      // topics as colored category pills
+      const topicPillsRow = (includeTopicsTags && note.topics?.length) ? note.topics.map(t => {
+        const cat = TOPICS.find(c => c.items.includes(t));
+        return `<span style="background:${cat?.color||"#888"}22;border:1px solid ${cat?.color||"#888"}55;color:${cat?.color||"#555"};border-radius:20px;padding:2px 11px;font-size:11px;margin:2px 3px;display:inline-block">${t}</span>`;
+      }).join("") : "";
+
+      const tagPillsRow = (includeTopicsTags && note.tags?.length) ?
+        note.tags.map(t => `<span style="background:#33333322;border:1px solid #55555544;color:#666;border-radius:20px;padding:2px 10px;font-size:11px;margin:2px 3px;display:inline-block">#${t}</span>`).join("") : "";
+
       body += `<div class="note-card">
-        <div class="note-header">${surahName} · آية ${ayah}${note.page ? ` &nbsp;<span class="page-num">ص ${note.page}</span>` : ""}</div>
-        ${colorBadges ? `<div class="badges">${colorBadges}</div>` : ""}
-        ${note.meaning     ? `<div class="field"><span class="flabel">المعنى الإجمالي</span><div>${note.meaning}</div></div>` : ""}
-        ${masailRows       ? `<div class="field"><span class="flabel">مسائل القرطبي</span><ol>${masailRows}</ol></div>` : ""}
-        ${note.reflection  ? `<div class="field reflection"><span class="flabel">الفوائد وما استوقفني ✦</span><div>${note.reflection}</div></div>` : ""}
-        ${note.topics?.length ? `<div class="field"><span class="flabel">الموضوعات</span> ${note.topics.join("، ")}</div>` : ""}
-        ${note.tags?.length   ? `<div class="field"><span class="flabel">الوسوم</span> ${note.tags.map(t=>"#"+t).join(" ")}</div>` : ""}
+        <div class="note-header">
+          <span>آية ${ayah}</span>
+          ${pageStr}
+        </div>
+        ${includeMeaning && note.meaning ? `
+        <div class="field-meaning">
+          <div class="flabel">المعنى الإجمالي</div>
+          <div class="meaning-text">${note.meaning.replace(/\n/g,"<br>")}</div>
+        </div>` : ""}
+        ${masailRows ? `
+        <div class="field-masail">
+          <div class="flabel">مسائل القرطبي</div>
+          ${masailRows}
+        </div>` : ""}
+        ${includeReflection && note.reflection ? `
+        <div class="field-reflection">
+          <div class="flabel">الفوائد والاستنباطات + ما استوقفني + استفسارات ✦</div>
+          <div class="reflection-text">${note.reflection.replace(/\n/g,"<br>")}</div>
+        </div>` : ""}
+        ${topicPillsRow ? `<div class="field-topics">${topicPillsRow}</div>` : ""}
+        ${tagPillsRow   ? `<div class="field-tags">${tagPillsRow}</div>` : ""}
       </div>`;
     }
     body += `</div>`;
   }
+
   return `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>ملاحظات تفسير القرآن — القرطبي</title>
+<title>مفكرة التفسير — القرطبي</title>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; }
-  body { font-family:'Cairo','Amiri',serif; direction:rtl; margin:20px 40px; color:#1a1a1a; background:#fff; font-size:13px; line-height:1.9; }
-  h1 { font-family:'Amiri',serif; font-size:24px; text-align:center; color:#6b4c10; margin-bottom:4px; }
-  .meta-line { text-align:center; color:#999; font-size:12px; margin-bottom:28px; }
-  .surah-section { margin-bottom:40px; }
-  .surah-title { font-family:'Amiri',serif; font-size:19px; color:#6b4c10; border-right:4px solid #C9A84C; padding-right:12px; margin:0 0 10px; }
-  .surah-meta { font-size:13px; font-weight:400; color:#999; }
-  .surah-intro { background:#fffbf0; border:1px solid #C9A84C55; border-radius:8px; padding:12px 16px; margin-bottom:14px; font-size:13px; color:#444; }
-  .note-card { border:1px solid #e0d0b0; border-radius:8px; padding:14px 18px; margin-bottom:12px; background:#fffef8; page-break-inside:avoid; }
-  .note-header { font-size:15px; font-weight:700; color:#6b4c10; margin-bottom:8px; }
-  .page-num { font-size:12px; color:#aaa; font-weight:400; }
-  .badges { margin-bottom:8px; }
-  .badge { display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:700; margin-left:6px; }
-  .field { margin-top:10px; }
-  .flabel { display:block; font-size:11px; font-weight:700; color:#C9A84C; margin-bottom:3px; }
-  .reflection { border-right:3px solid #C9A84C; padding-right:10px; }
+  * { box-sizing:border-box; }
+  body { font-family:'Cairo','Amiri',serif; direction:rtl; margin:0; color:#1a1a1a; background:#fff; font-size:14px; line-height:1.9; }
+  .legend-page .legend-color-card { color:#1a1208; }
+  .surah-section { margin-bottom:48px; padding:0 36px; }
+  .surah-header { background:#1a1208; color:#C9A84C; border-radius:10px; padding:12px 20px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; font-size:22px; font-family:'Amiri',serif; font-weight:700; }
+  .surah-meta { font-size:13px; color:#C9A84C99; font-weight:400; font-family:'Cairo',sans-serif; }
+  .note-card { border:1px solid #e0d0b0; border-radius:10px; padding:16px 20px; margin-bottom:14px; background:#fffef8; page-break-inside:avoid; }
+  .note-header { font-size:17px; font-weight:700; color:#6b4c10; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
+  .page-num { font-size:12px; color:#bbb; font-weight:400; }
+  .flabel { font-size:12px; font-weight:700; color:#C9A84C; margin-bottom:6px; }
+  .field-meaning { border-right:3px solid #C9A84C; padding-right:12px; margin-bottom:12px; }
+  .meaning-text { font-size:15px; color:#222; line-height:1.9; }
+  .field-masail { margin-bottom:12px; }
+  .field-reflection { border-right:3px solid #C9A84C55; padding-right:12px; margin-bottom:12px; }
+  .reflection-text { font-size:14px; color:#444; line-height:1.9; background:#fffbf0; border-radius:8px; padding:10px 14px; }
+  .field-topics { margin-bottom:6px; }
+  .field-tags { margin-bottom:4px; }
   ol { margin:6px 0; padding-right:20px; }
-  li { margin-bottom:4px; }
+  li { margin-bottom:4px; font-size:14px; }
   @media print {
-    body { margin:10mm 15mm; }
+    body { margin:0; }
+    .surah-section { padding:0 20px; }
+    .legend-page { min-height:auto; }
     .surah-section:not(:first-child) { page-break-before:always; }
     .note-card { page-break-inside:avoid; }
   }
 </style>
 </head>
 <body>
-<h1>📖 ملاحظات تفسير القرآن الكريم — القرطبي</h1>
-<p class="meta-line">تصدير بتاريخ ${new Date().toLocaleDateString("ar-SA")} · ${notes.length} ملاحظة</p>
+${legendPage}
+<div style="padding:28px 36px 0">
 ${body}
-<p style="text-align:center;color:#ccc;font-size:11px;margin-top:40px">﴿ وَنَزَّلْنَا عَلَيْكَ الْكِتَابَ تِبْيَانًا لِكُلِّ شَيْءٍ ﴾</p>
+<p style="text-align:center;color:#ccc;font-size:11px;margin-top:40px;padding-bottom:20px">﴿ وَنَزَّلْنَا عَلَيْكَ الْكِتَابَ تِبْيَانًا لِكُلِّ شَيْءٍ ﴾</p>
+</div>
 </body>
 </html>`;
 }
@@ -605,7 +699,7 @@ function NoteCard({ note, index, onDelete, onTagClick }) {
             </div>
           )}
 
-          {note.reflection && <Field label="الفوائد وما استوقفني ✦" value={note.reflection} color="#C9A84C" />}
+          {note.reflection && <Field label="الفوائد والاستنباطات + ما استوقفني + استفسارات ✦" value={note.reflection} color="#C9A84C" />}
           <button onClick={()=>onDelete(index)} style={{ marginTop:12, background:"#3a0000", color:"#ff6b6b", border:"1px solid #ff6b6b44", borderRadius:8, padding:"5px 14px", cursor:"pointer", fontSize:12 }}>حذف</button>
         </div>
       )}
@@ -974,14 +1068,16 @@ function parseNotes(text) {
           continue;
         }
       }
-      // سورة: الكهف
-      if (/^سورة[:：]/.test(line)) { note.surah = line.replace(/^سورة[:：]\s*/, ""); continue; }
-      // آية: ١  or  من آية: ١
-      if (/^(آية|من آية|من|رقم الآية)[:：]/.test(line)) { note.ayahFrom = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
-      // إلى آية: ٢
-      if (/^(إلى آية|إلى|حتى آية)[:：]/.test(line)) { note.ayahTo = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
-      // صفحة: ١٥٠
-      if (/^صفحة[:：]/.test(line)) { note.page = line.replace(/^صفحة[:：]\s*/, ""); continue; }
+      // التاريخ: — ignore
+      if (/^التاريخ[:：]/.test(line)) continue;
+      // السورة: الكهف  or  سورة: الكهف
+      if (/^(السورة|سورة)[:：]/.test(line)) { note.surah = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
+      // الآية من: ١  or  آية: ١  or  من آية: ١
+      if (/^(الآية من|آية من|آية|من آية|من|رقم الآية)[:：]/.test(line)) { note.ayahFrom = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
+      // إلى: ٢  or  إلى آية: ٢
+      if (/^(إلى آية|إلى|حتى آية|حتى)[:：]/.test(line)) { note.ayahTo = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
+      // رقم الصفحة: ١٥٠  or  صفحة: ١٥٠
+      if (/^(رقم الصفحة|الصفحة|صفحة)[:：]/.test(line)) { note.page = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
 
       // م: المعنى
       if (/^م[:：]/.test(line)) {
@@ -1007,9 +1103,24 @@ function parseNotes(text) {
         if (!note.colorKeys.includes("ت")) note.colorKeys.push("ت");
         continue;
       }
-      // مسألة ١: ...
+      // مسألة ١: [م/خ/د/ت]: text  or  مسألة ١: text
       if (/^مسألة\s*[\d٠-٩]*[:：]/.test(line)) {
-        note.masail.push(line.replace(/^مسألة\s*[\d٠-٩]*[:：]\s*/, ""));
+        const body = line.replace(/^مسألة\s*[\d٠-٩]*[:：]\s*/, "");
+        // detect inline color key: "خ: text" or "م — text"
+        const colorMatch = body.match(/^([مخدت])[:：]\s*(.+)/);
+        if (colorMatch) {
+          const [, ck, txt] = colorMatch;
+          note.masail.push(`${ck} — ${txt}`);
+          if (!note.colorKeys.includes(ck)) note.colorKeys.push(ck);
+        } else {
+          note.masail.push(body);
+        }
+        continue;
+      }
+      // الفوائد والاستنباطات...: text (reflection section header — take text after colon)
+      if (/^الفوائد/.test(line)) {
+        const afterColon = line.replace(/^[^:：]*[:：]\s*/, "");
+        if (afterColon && afterColon !== line) note.reflection = (note.reflection ? note.reflection + "\n" : "") + afterColon;
         continue;
       }
       // وسوم: وسم١، وسم٢
@@ -1018,10 +1129,17 @@ function parseNotes(text) {
         note.tags.push(...tags);
         continue;
       }
-      // موضوعات: ...
-      if (/^(موضوع|موضوعات|topics)[:：]/.test(line)) {
-        const tops = line.replace(/^[^:：]+[:：]\s*/, "").split(/[،,]/).map(t=>t.trim()).filter(Boolean);
+      // الموضوعات المختارة: — preferred topics field
+      if (/^الموضوعات المختارة[:：]/.test(line)) {
+        const tops = line.replace(/^[^:：]+[:：]\s*/, "").split(/[،,\/]/).map(t=>t.trim()).filter(Boolean);
         note.topics.push(...tops.filter(t => ALL_TOPICS.includes(t)));
+        continue;
+      }
+      // موضوعات: ... (skip if it looks like the full reference legend — too many items)
+      if (/^(موضوع|موضوعات|topics)[:：]/.test(line)) {
+        const tops = line.replace(/^[^:：]+[:：]\s*/, "").split(/[،,\/]/).map(t=>t.trim()).filter(Boolean);
+        const valid = tops.filter(t => ALL_TOPICS.includes(t));
+        if (valid.length <= 6) note.topics.push(...valid); // skip legend lines with many items
         continue;
       }
     }
@@ -1093,7 +1211,7 @@ function QuickInputView({ onSaveNotes }) {
 
 {"notes":[{"surah":"اسم السورة","ayahFrom":"رقم","ayahTo":"رقم","page":"رقم","colorKeys":[],"meaning":"المعنى الإجمالي","masail":["م — نص","خ — نص","د — نص","ت — نص"],"reflection":"الفوائد","topics":["من القائمة فقط"],"tags":["وسم"]}]}
 
-قواعد المسائل: م — أحكام | خ — خلاصة | د — أدلة | ت — تربوية
+قواعد المسائل: كل مسألة تبدأ بـ "مسألة N: [م/خ/د/ت]: النص" حيث م — أحكام | خ — خلاصة | د — أدلة | ت — تربوية. في الـ JSON ضع كل مسألة بصيغة "م — نص" أو "خ — نص" إلخ. حقل "reflection" للفوائد والاستنباطات. "الموضوعات المختارة" تذهب إلى topics.
 
 الموضوعات المتاحة فقط:
 التوحيد ونفي الشرك، الأسماء والصفات، الإيمان بالغيب، الإيمان بالملائكة، الإيمان بالكتب، القضاء والقدر، التوبة والمغفرة، تزكية النفس، الخوف والرجاء، الشكر والصبر، الإخلاص والنية، يوم القيامة وأهواله، الجنة ونعيمها، النار وعذابها، الحساب والميزان، الشفاعة، قصص الأنبياء، قصص الأمم السابقة، العبرة من القصص، العبادات، المعاملات، الأسرة والنكاح، الحدود والعقوبات، طبائع النفس البشرية، الغفلة والتذكير، الابتلاء والاختبار، الموت وسكراته، آيات الكون والطبيعة، الخلق والتدبير، التفكر والتأمل، صفات المنافقين، صفات الكافرين، مصير المكذبين، الأمر بالمعروف والنهي عن المنكر، العلاقة مع غير المسلمين، الجهاد والدفاع
@@ -1160,18 +1278,24 @@ ${userNotes}`;
         </div>
         <div style={{ background:"#0d0d1a", borderRadius:10, padding:"12px 14px", border:"1px solid #2a2a3a" }}>
           <div style={{ color:"#555", fontSize:11, marginBottom:6 }}>مثال:</div>
-          <pre style={{ color:"#aaa", fontSize:12, lineHeight:2, margin:0, whiteSpace:"pre-wrap", fontFamily:"Cairo,serif" }}>{`الكهف ١
+          <pre style={{ color:"#aaa", fontSize:12, lineHeight:2, margin:0, whiteSpace:"pre-wrap", fontFamily:"Cairo,serif" }}>{`التاريخ: …..
+السورة: الكهف
+الآية من: 1
+إلى: 1
+رقم الصفحة: 293
+
 م: الحمد لله الذي أنزل القرآن على محمد
-خ: القرطبي: المقصود هو القرآن لا غيره
-د: حديث فضل سورة الكهف
-ت: القرآن أفضل الكتب السماوية
-مسألة ١: ما المراد بالعبد في الآية؟
-مسألة ٢: لماذا أضاف الهاء في الأخير؟
-وسوم: القرطبي، فضائل القرآن
----
-الكهف ٢
-م: القرآن قيّم لا عوج فيه
-مسألة ١: معنى قيّماً`}</pre>
+
+مسألة ١: خ: ما المراد بالعبد في الآية؟
+مسألة ٢: د: لماذا أضاف الهاء في الأخير؟
+مسألة ٣: ت: القرآن أفضل الكتب السماوية
+مسألة ٤: م: الحمد لله الذي أنزل القرآن على محمد
+
+الفوائد والاستنباطات + ما استوقفني + استفسارات:
+
+الموضوعات المختارة: التوحيد ونفي الشرك، الأسماء والصفات
+
+وسوم: القرطبي، فضائل القرآن`}</pre>
         </div>
         <div style={{ marginTop:10, color:"#666", fontSize:11, lineHeight:1.8 }}>
           <strong style={{color:"#C9A84C"}}>م:</strong> المعنى الإجمالي &nbsp;·&nbsp;
@@ -1283,7 +1407,7 @@ function ParsedNoteCard({ note, index, onUpdate, onRemove }) {
           {/* الفوائد */}
           {note.reflection && (
             <div>
-              <div style={{ color:"#8899bb", fontSize:11, fontWeight:600, marginBottom:4 }}>الفوائد وما استوقفني ✦</div>
+              <div style={{ color:"#8899bb", fontSize:11, fontWeight:600, marginBottom:4 }}>الفوائد والاستنباطات + ما استوقفني + استفسارات ✦</div>
               <textarea value={note.reflection} onChange={e=>onUpdate("reflection",e.target.value)} rows={2}
                 style={{ ...textareaStyle, fontSize:13, borderColor:"#C9A84C33" }} />
             </div>
@@ -1296,6 +1420,149 @@ function ParsedNoteCard({ note, index, onUpdate, onRemove }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Export Modal ──
+function ExportModal({ notes, surahIntros, onClose }) {
+  const [scope, setScope]   = useState("all");        // all | surah | topic | color
+  const [surah, setSurah]   = useState("");
+  const [topic, setTopic]   = useState(ALL_TOPICS[0]);
+  const [color, setColor]   = useState(COLOR_SYSTEM[0].key);
+  const [fmt,   setFmt]     = useState("pdf");
+  const [inc, setInc] = useState({
+    meaning: true, masail: true, reflection: true, topicsTags: true, pageNumbers: true,
+  });
+
+  const toggleInc = k => setInc(p => ({ ...p, [k]: !p[k] }));
+
+  // Derive filtered note set
+  const filtered = (() => {
+    if (scope === "surah") return notes.filter(n => n.surah === surah);
+    if (scope === "topic") return notes.filter(n => n.topics?.includes(topic));
+    if (scope === "color") return notes.filter(n => n.colorKeys?.includes(color) || (n.masail||[]).some(m => m.startsWith(color + " —")));
+    return notes;
+  })();
+
+  // Derive file name
+  const fileName = (() => {
+    if (scope === "surah"  && surah) return `تفسير-${surah}`;
+    if (scope === "topic"  && topic) return `موضوع-${topic}`;
+    if (scope === "color"  && color) return `ملاحظات-${color}`;
+    return "مفكرة-التفسير-كاملة";
+  })();
+
+  const opts = {
+    includeMeaning:    inc.meaning,
+    includeMasail:     inc.masail,
+    includeReflection: inc.reflection,
+    includeTopicsTags: inc.topicsTags,
+    includePageNums:   inc.pageNumbers,
+  };
+
+  const doExport = () => {
+    if (filtered.length === 0) { alert("لا توجد ملاحظات مطابقة"); return; }
+    const html = generateExportHTML(filtered, surahIntros, opts);
+    if (fmt === "pdf") {
+      const win = window.open("", "_blank");
+      if (!win) { alert("يرجى السماح بالنوافذ المنبثقة"); return; }
+      win.document.write(html);
+      win.document.close();
+      win.onload = () => win.print();
+    } else {
+      const blob = new Blob(["﻿" + html], { type: "application/msword;charset=utf-8" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url;
+      a.download = `${fileName}.doc`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    onClose();
+  };
+
+  const radio = (val, cur, set, label) => (
+    <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"6px 0", color: cur===val?"#C9A84C":"#aaa", fontWeight: cur===val?700:400 }}>
+      <input type="radio" checked={cur===val} onChange={()=>set(val)} style={{ accentColor:"#C9A84C" }} />
+      {label}
+    </label>
+  );
+  const check = (key, label) => (
+    <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"4px 0", color:"#ccc" }}>
+      <input type="checkbox" checked={inc[key]} onChange={()=>toggleInc(key)} style={{ accentColor:"#C9A84C" }} />
+      {label}
+    </label>
+  );
+
+  const secTitle = t => (
+    <div style={{ color:"#C9A84C", fontWeight:700, fontSize:13, marginBottom:10, borderRight:"3px solid #C9A84C", paddingRight:10 }}>{t}</div>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"#000000cc", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={onClose}>
+      <div style={{ background:"#13132a", border:"1px solid #C9A84C44", borderRadius:16, padding:24, maxWidth:480, width:"100%", maxHeight:"90vh", overflowY:"auto", direction:"rtl" }} onClick={e=>e.stopPropagation()}>
+
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <span style={{ color:"#C9A84C", fontWeight:700, fontSize:16 }}>📤 تصدير الملاحظات</span>
+          <span onClick={onClose} style={{ cursor:"pointer", color:"#666", fontSize:18 }}>✕</span>
+        </div>
+
+        {/* Step 1 */}
+        <div style={{ background:"#0d0d1a", borderRadius:10, padding:"14px 16px", marginBottom:14 }}>
+          {secTitle("الخطوة ١ — ماذا تصدّرين؟")}
+          {radio("all",   scope, setScope, "كل الملاحظات")}
+          {radio("surah", scope, setScope, "سورة محددة")}
+          {scope === "surah" && (
+            <select value={surah} onChange={e=>setSurah(e.target.value)} style={{ background:"#1a1a2e", border:"1px solid #C9A84C44", borderRadius:8, color:"#e0e0e0", padding:"6px 10px", fontFamily:"inherit", fontSize:12, width:"100%", marginTop:6, outline:"none" }}>
+              <option value="">اختر السورة...</option>
+              {SURAHS.map(s=><option key={s.name} value={s.name}>{s.name}</option>)}
+            </select>
+          )}
+          {radio("topic", scope, setScope, "موضوع محدد")}
+          {scope === "topic" && (
+            <select value={topic} onChange={e=>setTopic(e.target.value)} style={{ background:"#1a1a2e", border:"1px solid #C9A84C44", borderRadius:8, color:"#e0e0e0", padding:"6px 10px", fontFamily:"inherit", fontSize:12, width:"100%", marginTop:6, outline:"none" }}>
+              {ALL_TOPICS.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          {radio("color", scope, setScope, "نوع لون محدد")}
+          {scope === "color" && (
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:8 }}>
+              {COLOR_SYSTEM.map(cs=>(
+                <button key={cs.key} onClick={()=>setColor(cs.key)}
+                  style={{ background: color===cs.key ? cs.color+"44":"transparent", border:`1px solid ${cs.color}88`, borderRadius:8, padding:"4px 12px", cursor:"pointer", color: color===cs.key?"#fff":"#aaa", fontFamily:"inherit", fontSize:12, fontWeight: color===cs.key?700:400 }}>
+                  {cs.key} · {cs.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop:10, color: filtered.length===0?"#e74c3c":"#27AE60", fontSize:12 }}>
+            {filtered.length} ملاحظة ستُصدَّر · اسم الملف: {fileName}
+          </div>
+        </div>
+
+        {/* Step 2 */}
+        <div style={{ background:"#0d0d1a", borderRadius:10, padding:"14px 16px", marginBottom:14 }}>
+          {secTitle("الخطوة ٢ — ماذا تضمّنين؟")}
+          {check("meaning",    "المعنى الإجمالي")}
+          {check("masail",     "المسائل")}
+          {check("reflection", "الفوائد والاستنباطات")}
+          {check("topicsTags", "الموضوعات والوسوم")}
+          {check("pageNumbers","أرقام الصفحات")}
+        </div>
+
+        {/* Step 3 */}
+        <div style={{ background:"#0d0d1a", borderRadius:10, padding:"14px 16px", marginBottom:20 }}>
+          {secTitle("الخطوة ٣ — الصيغة")}
+          {radio("pdf",  fmt, setFmt, "🖨 PDF (عبر نافذة الطباعة)")}
+          {radio("word", fmt, setFmt, "📄 Word (.doc)")}
+        </div>
+
+        <button onClick={doExport} disabled={filtered.length===0}
+          style={{ width:"100%", padding:"12px", background: filtered.length>0?"linear-gradient(135deg,#C9A84C,#a07830)":"#2a2a4a", color: filtered.length>0?"#fff":"#555", border:"none", borderRadius:10, fontFamily:"inherit", fontWeight:700, fontSize:15, cursor: filtered.length>0?"pointer":"not-allowed" }}>
+          تصدير ←
+        </button>
+      </div>
     </div>
   );
 }
@@ -1338,6 +1605,7 @@ export default function App() {
   }, []);
 
   const [backupMsg, setBackupMsg] = useState("");
+  const [showExportModal, setShowExportModal] = useState(false);
   const importRef = useRef(null);
 
   // ── تصدير نسخة احتياطية JSON ──
@@ -1480,6 +1748,7 @@ export default function App() {
     <div dir="rtl" style={{ minHeight:"100vh", background:"#0d0d1a", fontFamily:"'Cairo','Amiri',serif", color:"#e0e0e0", padding:"20px 14px" }}>
       <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} * { box-sizing:border-box; }`}</style>
+      {showExportModal && <ExportModal notes={notes} surahIntros={surahIntros} onClose={()=>setShowExportModal(false)} />}
 
       {/* Header */}
       <div style={{ textAlign:"center", marginBottom:16 }}>
@@ -1508,13 +1777,9 @@ export default function App() {
           style={{ background: notes.length===0?"#1a1a2e":"linear-gradient(135deg,#C9A84C,#a07830)", color: notes.length===0?"#444":"#fff", border:"none", borderRadius:8, padding:"6px 14px", cursor: notes.length===0?"not-allowed":"pointer", fontFamily:"inherit", fontWeight:700, fontSize:12, display:"flex", alignItems:"center", gap:5 }}>
           ⬇ JSON
         </button>
-        <button onClick={exportToPDF} disabled={notes.length===0}
+        <button onClick={()=>setShowExportModal(true)} disabled={notes.length===0}
           style={{ background:"transparent", color: notes.length===0?"#444":"#e74c3c", border:`1px solid ${notes.length===0?"#2a2a4a":"#e74c3c55"}`, borderRadius:8, padding:"5px 12px", cursor: notes.length===0?"not-allowed":"pointer", fontFamily:"inherit", fontSize:12 }}>
-          🖨 PDF
-        </button>
-        <button onClick={exportToWord} disabled={notes.length===0}
-          style={{ background:"transparent", color: notes.length===0?"#444":"#4a90d9", border:`1px solid ${notes.length===0?"#2a2a4a":"#4a90d955"}`, borderRadius:8, padding:"5px 12px", cursor: notes.length===0?"not-allowed":"pointer", fontFamily:"inherit", fontSize:12 }}>
-          📄 Word
+          📤 تصدير PDF / Word
         </button>
         <button onClick={()=>importRef.current?.click()}
           style={{ background:"transparent", color:"#C9A84C", border:"1px solid #C9A84C55", borderRadius:8, padding:"5px 12px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
@@ -1641,7 +1906,7 @@ export default function App() {
           </div>
 
           <div style={{ marginBottom:18 }}>
-            <Label>الفوائد والاستنباطات + ما استوقفني ✦</Label>
+            <Label>الفوائد والاستنباطات + ما استوقفني + استفسارات ✦</Label>
             <textarea value={form.reflection} onChange={e=>set("reflection",e.target.value)} rows={3}
               placeholder="ما تستنبطه من الآية، ملاحظة شخصية، تساؤل، أو ارتباط بشيء..." style={{ ...textareaStyle, borderColor:"#C9A84C44" }} />
           </div>
