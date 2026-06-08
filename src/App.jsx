@@ -440,7 +440,13 @@ function ColorPicker({ selected, onChange }) {
 }
 
 // ── Surah Intro Card ──
-function SurahIntroCard({ surahName, surahData, intro, onUpdate }) {
+function SurahIntroCard({ surahName, surahData, intro, onUpdate, apiKey }) {
+  const anthropicHeaders = () => ({
+    "Content-Type": "application/json",
+    "x-api-key": apiKey || "",
+    "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true",
+  });
   const [editingUser, setEditingUser] = useState(false);
   const [draft, setDraft] = useState(intro.userNotes);
 
@@ -449,7 +455,7 @@ function SurahIntroCard({ surahName, surahData, intro, onUpdate }) {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
-        headers:{ "Content-Type":"application/json" },
+        headers: anthropicHeaders(),
         body: JSON.stringify({
           model:"claude-sonnet-4-20250514",
           max_tokens:1000,
@@ -997,7 +1003,13 @@ function MindMapView({ notes, surahIntros }) {
 // ── QUICK INPUT COMPONENT ──
 // ══════════════════════════════════════════════
 
-function QuickInputView({ onSaveNotes }) {
+function QuickInputView({ onSaveNotes, apiKey }) {
+  const anthropicHeaders = () => ({
+    "Content-Type": "application/json",
+    "x-api-key": apiKey || "",
+    "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true",
+  });
   const [stage, setStage]         = useState("upload");   // upload | reviewing | done
   const [rawText, setRawText]     = useState("");
   const [parsing, setParsing]     = useState(false);
@@ -1025,7 +1037,7 @@ function QuickInputView({ onSaveNotes }) {
 
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: anthropicHeaders(),
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 4000,
@@ -1110,7 +1122,7 @@ ${ALL_TOPICS.join("، ")}
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
-        headers:{ "Content-Type":"application/json" },
+        headers: anthropicHeaders(),
         body: JSON.stringify({
           model:"claude-sonnet-4-20250514",
           max_tokens:4000,
@@ -1391,7 +1403,21 @@ export default function App() {
   const [filterColor, setFilterColor] = useState("");
   const [searchText, setSearchText]   = useState("");
   const [ready, setReady]             = useState(false);
+  const [apiKey, setApiKey]           = useState(() => localStorage.getItem("tafsir-api-key") || "");
+  const [showApiKey, setShowApiKey]   = useState(false);
   const topicRef = useRef(null);
+
+  const saveApiKey = (key) => {
+    setApiKey(key);
+    localStorage.setItem("tafsir-api-key", key);
+  };
+
+  const anthropicHeaders = () => ({
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true",
+  });
 
   // Load from storage on mount
   useEffect(() => {
@@ -1513,7 +1539,7 @@ export default function App() {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: anthropicHeaders(),
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 200,
@@ -1631,7 +1657,24 @@ ${ALL_TOPICS.join("، ")}
           ⬆ استيراد
         </button>
         <input ref={importRef} type="file" accept=".json" onChange={importBackup} style={{ display:"none" }} />
+        <button onClick={()=>setShowApiKey(v=>!v)}
+          style={{ background:"transparent", color: apiKey?"#27AE60":"#e74c3c", border:`1px solid ${apiKey?"#27AE6055":"#e74c3c55"}`, borderRadius:8, padding:"5px 12px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
+          {apiKey ? "🔑 مفتاح API ✓" : "🔑 مفتاح API"}
+        </button>
       </div>
+      {showApiKey && (
+        <div style={{ background:"#13132a", border:"1px solid #C9A84C33", borderRadius:10, padding:"12px 16px", marginBottom:12, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+          <span style={{ color:"#C9A84C", fontSize:12, fontWeight:700 }}>🔑 Anthropic API Key</span>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={e=>saveApiKey(e.target.value)}
+            placeholder="sk-ant-..."
+            style={{ flex:1, minWidth:200, background:"#0d0d1a", border:"1px solid #2a2a4a", borderRadius:8, padding:"6px 12px", color:"#fff", fontFamily:"monospace", fontSize:12, outline:"none" }}
+          />
+          <span style={{ fontSize:11, color:"#555" }}>يُحفظ في المتصفح فقط</span>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display:"flex", justifyContent:"center", gap:5, marginBottom:20, flexWrap:"wrap" }}>
@@ -1642,7 +1685,7 @@ ${ALL_TOPICS.join("، ")}
 
       {/* ── QUICK INPUT ── */}
       {view==="quick" && (
-        <QuickInputView onSaveNotes={newNotes => {
+        <QuickInputView apiKey={apiKey} onSaveNotes={newNotes => {
           newNotes.forEach(n => {
             if (n.surah && !surahIntros[n.surah]) setSurahIntros(s=>({...s,[n.surah]:{...emptyIntro}}));
           });
@@ -1831,7 +1874,7 @@ ${ALL_TOPICS.join("، ")}
                 const intro = surahIntros[surahName]||emptyIntro;
                 return (
                   <div key={surahName} style={{ marginBottom:28 }}>
-                    <SurahIntroCard surahName={surahName} surahData={surahData} intro={intro} onUpdate={i=>updateIntro(surahName,i)} />
+                    <SurahIntroCard apiKey={apiKey} surahName={surahName} surahData={surahData} intro={intro} onUpdate={i=>updateIntro(surahName,i)} />
                     <div style={{ color:"#555", fontSize:12, marginBottom:8 }}>{surahNotes.length} ملاحظة</div>
                     {surahNotes.map((n,i)=><NoteCard key={i} note={n} index={notes.indexOf(n)} onDelete={deleteNote} onTagClick={t=>{setFilterTag(t);}} />)}
                   </div>
