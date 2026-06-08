@@ -1101,6 +1101,8 @@ function QuickInputView({ onSaveNotes }) {
     reader.readAsText(file, "UTF-8");
   };
 
+  const [copied, setCopied] = useState(false);
+
   const analyze = () => {
     if (!rawText.trim()) return setError("الرجاء كتابة الملاحظات أولاً");
     const results = parseNotes(rawText);
@@ -1108,6 +1110,41 @@ function QuickInputView({ onSaveNotes }) {
     setParsed(results);
     setStage("reviewing");
     setError("");
+  };
+
+  const copyClaudePrompt = () => {
+    const topics = ALL_TOPICS.join("، ");
+    const userNotes = rawText.trim() || "[الصق ملاحظاتك هنا]";
+    const prompt = `أنت مساعد لتنظيم ملاحظات تفسير القرآن الكريم من كتاب القرطبي.
+مهمتك: تحويل الملاحظات التالية إلى صيغة محددة أستطيع لصقها في تطبيقي.
+
+الصيغة المطلوبة بالضبط:
+اسم_السورة رقم_الآية
+م: المعنى الإجمالي والأحكام الفقهية
+خ: خلاصة وترجيح القرطبي
+د: الأدلة والأحاديث وأسباب النزول
+ت: اللطائف التربوية وما يستوقف القارئ
+مسألة 1: نص المسألة الأولى
+مسألة 2: نص المسألة الثانية
+وسوم: وسم1، وسم2، وسم3
+موضوعات: موضوع من القائمة فقط
+
+قائمة الموضوعات المتاحة (اختر منها فقط):
+${topics}
+
+قواعد مهمة:
+- السطر الأول دائماً: اسم السورة بالعربي ثم رقم الآية (مثل: الكهف 1)
+- إذا كانت ملاحظات لآيات متعددة افصل بينها بسطر يحتوي --- فقط
+- لا تضف أي نص خارج الصيغة المطلوبة
+- الموضوعات من القائمة أعلاه فقط، لا تخترع موضوعات جديدة
+- إذا لم تجد معلومة اترك السطر بالكامل
+
+الملاحظات المراد تنظيمها:
+${userNotes}`;
+    navigator.clipboard.writeText(prompt).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    });
   };
 
   const saveAll = () => { onSaveNotes(parsed); setParsed([]); setRawText(""); setStage("done"); };
@@ -1202,6 +1239,23 @@ function QuickInputView({ onSaveNotes }) {
           style={{ ...textareaStyle, fontSize:13, lineHeight:2, marginBottom:12 }}
         />
         {error && <div style={{ color:"#ff6b6b", fontSize:13, marginBottom:10, padding:"8px 12px", background:"#3a000022", borderRadius:8, border:"1px solid #ff6b6b33" }}>{error}</div>}
+
+        {/* زر Claude.ai */}
+        <div style={{ background:"#0d0d1a", border:"1px solid #C9A84C33", borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
+          <div style={{ color:"#C9A84C", fontWeight:700, fontSize:13, marginBottom:6 }}>✨ استخدم Claude.ai مجاناً لتنسيق ملاحظاتك</div>
+          <div style={{ color:"#666", fontSize:11, marginBottom:10, lineHeight:1.8 }}>
+            ١. اكتب ملاحظاتك بحرية في الخانة أعلاه<br/>
+            ٢. اضغط "نسخ الـ Prompt" — يُنسخ تلقائياً<br/>
+            ٣. افتح <a href="https://claude.ai" target="_blank" rel="noreferrer" style={{color:"#C9A84C"}}>claude.ai</a> والصق الـ prompt<br/>
+            ٤. انسخ رد Claude والصقه في الخانة أعلاه<br/>
+            ٥. اضغط "تحليل الملاحظات"
+          </div>
+          <button onClick={copyClaudePrompt}
+            style={{ width:"100%", padding:"9px", background: copied?"#27AE6022":"#C9A84C22", color: copied?"#27AE60":"#C9A84C", border:`1px solid ${copied?"#27AE6055":"#C9A84C55"}`, borderRadius:8, fontFamily:"inherit", fontWeight:700, fontSize:13, cursor:"pointer", transition:"all .3s" }}>
+            {copied ? "✅ تم النسخ — افتح claude.ai والصق!" : "📋 نسخ الـ Prompt لـ Claude.ai"}
+          </button>
+        </div>
+
         <button onClick={analyze} disabled={!rawText.trim()}
           style={{ width:"100%", padding:"12px", background: rawText.trim()?"linear-gradient(135deg,#C9A84C,#a07830)":"#2a2a4a", color: rawText.trim()?"#fff":"#555", border:"none", borderRadius:10, fontFamily:"inherit", fontWeight:700, fontSize:16, cursor: rawText.trim()?"pointer":"not-allowed", transition:"all .2s" }}>
           ⚡ تحليل الملاحظات ←
