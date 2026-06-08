@@ -139,7 +139,7 @@ const SURAHS = [
 ];
 
 const emptyNote = { surah:"", ayahFrom:"", ayahTo:"", page:"", colorKeys:[], meaning:"", masail:[], reflection:"", topics:[], tags:[] };
-const emptyIntro = { aiSummary:"", userNotes:"", loading:false, generated:false };
+const emptyIntro = { userNotes:"" };
 
 // ── خريطة الموضوعات التلقائية لكل سورة ──
 const SURAH_DEFAULT_TOPICS = {
@@ -269,9 +269,7 @@ function generateExportHTML(notes, surahIntros) {
     const intro      = surahIntros[surahName];
     body += `<div class="surah-section">
       <h2 class="surah-title">${surahName} &nbsp;<span class="surah-meta">${surahData?.revelation ?? ""} · ${surahData?.verses ?? ""} آية</span></h2>`;
-    if (intro?.aiSummary) {
-      body += `<div class="surah-intro">${intro.aiSummary.replace(/\n/g,"<br>")}</div>`;
-    }
+
     for (const note of surahNotes) {
       const ayah = note.ayahFrom === note.ayahTo ? note.ayahFrom : `${note.ayahFrom}–${note.ayahTo}`;
       const colorBadges = (note.colorKeys || []).map(k => {
@@ -439,92 +437,6 @@ function ColorPicker({ selected, onChange }) {
   );
 }
 
-// ── Surah Intro Card ──
-function SurahIntroCard({ surahName, surahData, intro, onUpdate, apiKey }) {
-  const anthropicHeaders = () => ({
-    "Content-Type": "application/json",
-    "x-api-key": apiKey || "",
-    "anthropic-version": "2023-06-01",
-    "anthropic-dangerous-direct-browser-access": "true",
-  });
-  const [editingUser, setEditingUser] = useState(false);
-  const [draft, setDraft] = useState(intro.userNotes);
-
-  const generateAI = async () => {
-    onUpdate({ ...intro, loading:true });
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers: anthropicHeaders(),
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
-          system:`أنت متخصص في تفسير القرآن الكريم وعلوم القرطبي. أجب باللغة العربية الفصحى بشكل موجز ومنظم. لا تستخدم markdown أو نجوم أو علامات تنسيق، فقط نص عادي منظم بالفقرات.`,
-          messages:[{ role:"user", content:
-            `اكتب مقدمة موجزة لسورة "${surahName}" (${surahData.revelation}، ${surahData.verses} آية) تشمل:
-1. موضوعها الرئيسي ومحاورها الكبرى
-2. سبب تسميتها
-3. أبرز ما تتميز به من الناحية التفسيرية
-4. المقصد العام منها
-
-اجعلها فقرات قصيرة واضحة، لا تتجاوز 180 كلمة.` }]
-        })
-      });
-      const data = await res.json();
-      const text = data.content?.find(b=>b.type==="text")?.text || "تعذّر التوليد، حاول مجدداً.";
-      onUpdate({ ...intro, aiSummary:text, loading:false, generated:true });
-    } catch {
-      onUpdate({ ...intro, aiSummary:"حدث خطأ في الاتصال، حاول مجدداً.", loading:false, generated:true });
-    }
-  };
-
-  const saveUserNotes = () => { onUpdate({ ...intro, userNotes:draft }); setEditingUser(false); };
-
-  return (
-    <div style={{ background:"linear-gradient(135deg,#0f1a2e,#1a1a0f)", border:"1px solid #C9A84C44", borderRadius:16, marginBottom:20, overflow:"hidden" }}>
-      <div style={{ padding:"14px 20px", borderBottom:"1px solid #2a2a1a", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <span style={{ fontFamily:"Amiri", fontSize:18, color:"#C9A84C", fontWeight:700 }}>مقدمة سورة {surahName}</span>
-          <RevealBadge revelation={surahData.revelation} />
-          <span style={{ color:"#555", fontSize:12 }}>{surahData.verses} آية</span>
-        </div>
-        {!intro.generated && !intro.loading && (
-          <button onClick={generateAI} style={{ background:"linear-gradient(135deg,#C9A84C,#a07830)", color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontFamily:"inherit", fontWeight:600, fontSize:13 }}>✨ توليد AI</button>
-        )}
-        {intro.generated && !intro.loading && (
-          <button onClick={generateAI} style={{ background:"transparent", color:"#C9A84C", border:"1px solid #C9A84C55", borderRadius:8, padding:"5px 12px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>↺ إعادة</button>
-        )}
-      </div>
-      <div style={{ padding:"14px 20px" }}>
-        {intro.loading && <div style={{ color:"#C9A84C", fontSize:14, padding:"16px 0", textAlign:"center", animation:"pulse 1s infinite" }}>⏳ جارٍ التوليد...</div>}
-        {intro.generated && !intro.loading && intro.aiSummary && (
-          <div style={{ marginBottom:14 }}>
-            <div style={{ color:"#C9A84C", fontSize:11, fontWeight:600, marginBottom:8 }}>✨ ملخص الذكاء الاصطناعي</div>
-            <div style={{ color:"#d0d0d0", fontSize:14, lineHeight:2, background:"#0d0d1a", borderRadius:10, padding:"12px 16px", border:"1px solid #2a2a3a", whiteSpace:"pre-wrap" }}>{intro.aiSummary}</div>
-          </div>
-        )}
-        <div>
-          <div style={{ color:"#8899bb", fontSize:11, fontWeight:600, marginBottom:6, display:"flex", justifyContent:"space-between" }}>
-            <span>✍️ ملاحظاتي الخاصة</span>
-            {!editingUser
-              ? <span onClick={()=>{ setDraft(intro.userNotes); setEditingUser(true); }} style={{ color:"#C9A84C", cursor:"pointer", fontSize:12 }}>{intro.userNotes?"تعديل":"+ إضافة"}</span>
-              : <div style={{ display:"flex", gap:8 }}>
-                  <span onClick={saveUserNotes} style={{ color:"#27AE60", cursor:"pointer", fontSize:12 }}>حفظ ✓</span>
-                  <span onClick={()=>setEditingUser(false)} style={{ color:"#888", cursor:"pointer", fontSize:12 }}>إلغاء</span>
-                </div>
-            }
-          </div>
-          {editingUser
-            ? <textarea value={draft} onChange={e=>setDraft(e.target.value)} rows={4} autoFocus placeholder="اكتب ملاحظاتك..." style={{ background:"#0d0d1a", border:"1px solid #C9A84C66", borderRadius:10, color:"#e0e0e0", padding:"10px 14px", fontSize:14, fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box", resize:"vertical", lineHeight:1.9 }} />
-            : intro.userNotes
-              ? <div style={{ color:"#ccc", fontSize:14, lineHeight:1.9, background:"#0d0d1a", borderRadius:10, padding:"10px 14px", border:"1px solid #2a2a2a", whiteSpace:"pre-wrap" }}>{intro.userNotes}</div>
-              : <div style={{ color:"#444", fontSize:13, fontStyle:"italic" }}>لم تُضف ملاحظات خاصة بعد...</div>
-          }
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Arabic ordinals ──
 const ARABIC_ORDINALS = ["الأولى","الثانية","الثالثة","الرابعة","الخامسة","السادسة","السابعة","الثامنة","التاسعة","العاشرة","الحادية عشرة","الثانية عشرة","الثالثة عشرة","الرابعة عشرة","الخامسة عشرة","السادسة عشرة","السابعة عشرة","الثامنة عشرة","التاسعة عشرة","العشرون"];
@@ -1412,21 +1324,7 @@ export default function App() {
   const [filterColor, setFilterColor] = useState("");
   const [searchText, setSearchText]   = useState("");
   const [ready, setReady]             = useState(false);
-  const [apiKey, setApiKey]           = useState(() => localStorage.getItem("tafsir-api-key") || "");
-  const [showApiKey, setShowApiKey]   = useState(false);
   const topicRef = useRef(null);
-
-  const saveApiKey = (key) => {
-    setApiKey(key);
-    localStorage.setItem("tafsir-api-key", key);
-  };
-
-  const anthropicHeaders = () => ({
-    "Content-Type": "application/json",
-    "x-api-key": apiKey,
-    "anthropic-version": "2023-06-01",
-    "anthropic-dangerous-direct-browser-access": "true",
-  });
 
   // Load from storage on mount
   useEffect(() => {
@@ -1451,7 +1349,6 @@ export default function App() {
   }, []);
 
   const [backupMsg, setBackupMsg] = useState("");
-  const [topicsLoading, setTopicsLoading] = useState(false);
   const importRef = useRef(null);
 
   // ── تصدير نسخة احتياطية JSON ──
@@ -1538,45 +1435,9 @@ export default function App() {
     setForm(f => ({ ...f, surah: surahName, ayahFrom:"", ayahTo:"", topics: [] }));
   };
 
-  // عند اختيار "الآية من": استدعاء AI لتحديد الموضوعات
-  const handleAyahFromChange = async (ayahNum) => {
+  const handleAyahFromChange = (ayahNum) => {
     set("ayahFrom", ayahNum);
-    set("ayahTo", ayahNum); // افتراضي: نفس الآية
-    if (!form.surah || !ayahNum) return;
-
-    setTopicsLoading(true);
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: anthropicHeaders(),
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 200,
-          system: `أنت متخصص في علوم القرآن. مهمتك تحديد الموضوعات القرآنية لآية محددة من قائمة ثابتة فقط. أجب بـ JSON فقط بدون أي نص إضافي أو markdown.`,
-          messages: [{
-            role: "user",
-            content: `حدد الموضوعات المناسبة للآية ${ayahNum} من سورة ${form.surah} من هذه القائمة فقط:
-${ALL_TOPICS.join("، ")}
-
-أعد JSON فقط بهذا الشكل بدون أي نص آخر:
-{"topics": ["موضوع١", "موضوع٢"]}
-
-اختر ٢ إلى ٤ موضوعات الأكثر ارتباطاً بمضمون الآية تحديداً.`
-          }]
-        })
-      });
-      const data = await res.json();
-      const raw  = data.content?.find(b => b.type === "text")?.text || "{}";
-      // تنظيف أي markdown محتمل
-      const clean = raw.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
-      const valid  = (parsed.topics || []).filter(t => ALL_TOPICS.includes(t));
-      if (valid.length > 0) setForm(f => ({ ...f, ayahFrom: ayahNum, ayahTo: ayahNum, topics: valid }));
-    } catch {
-      // في حال الخطأ: لا شيء، يختار المستخدم يدوياً
-    } finally {
-      setTopicsLoading(false);
-    }
+    set("ayahTo", ayahNum);
   };
 
   const addTopic = t => { if (!form.topics.includes(t)) set("topics",[...form.topics,t]); setShowTopicDrop(false); setTopicSearch(""); };
@@ -1671,24 +1532,7 @@ ${ALL_TOPICS.join("، ")}
           ⬆ استيراد
         </button>
         <input ref={importRef} type="file" accept=".json" onChange={importBackup} style={{ display:"none" }} />
-        <button onClick={()=>setShowApiKey(v=>!v)}
-          style={{ background:"transparent", color: apiKey?"#27AE60":"#e74c3c", border:`1px solid ${apiKey?"#27AE6055":"#e74c3c55"}`, borderRadius:8, padding:"5px 12px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
-          {apiKey ? "🔑 مفتاح API ✓" : "🔑 مفتاح API"}
-        </button>
       </div>
-      {showApiKey && (
-        <div style={{ background:"#13132a", border:"1px solid #C9A84C33", borderRadius:10, padding:"12px 16px", marginBottom:12, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
-          <span style={{ color:"#C9A84C", fontSize:12, fontWeight:700 }}>🔑 Anthropic API Key</span>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={e=>saveApiKey(e.target.value)}
-            placeholder="sk-ant-..."
-            style={{ flex:1, minWidth:200, background:"#0d0d1a", border:"1px solid #2a2a4a", borderRadius:8, padding:"6px 12px", color:"#fff", fontFamily:"monospace", fontSize:12, outline:"none" }}
-          />
-          <span style={{ fontSize:11, color:"#555" }}>يُحفظ في المتصفح فقط</span>
-        </div>
-      )}
 
       {/* Tabs */}
       <div style={{ display:"flex", justifyContent:"center", gap:5, marginBottom:20, flexWrap:"wrap" }}>
@@ -1699,7 +1543,7 @@ ${ALL_TOPICS.join("، ")}
 
       {/* ── QUICK INPUT ── */}
       {view==="quick" && (
-        <QuickInputView apiKey={apiKey} onSaveNotes={newNotes => {
+        <QuickInputView onSaveNotes={newNotes => {
           newNotes.forEach(n => {
             if (n.surah && !surahIntros[n.surah]) setSurahIntros(s=>({...s,[n.surah]:{...emptyIntro}}));
           });
@@ -1757,25 +1601,12 @@ ${ALL_TOPICS.join("، ")}
           <div style={{ marginBottom:12 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
               <Label>الموضوعات</Label>
-              {topicsLoading && (
-                <span style={{ fontSize:11, color:"#C9A84C", display:"flex", alignItems:"center", gap:4 }}>
-                  <span style={{ animation:"pulse 1s infinite", display:"inline-block" }}>⏳</span> AI يحدد الموضوعات...
-                </span>
-              )}
-              {!topicsLoading && form.topics.length > 0 && form.ayahFrom && (
-                <span style={{ fontSize:11, color:"#27AE60" }}>✓ مُعبَّأة تلقائياً بالذكاء الاصطناعي</span>
-              )}
-              {!topicsLoading && form.topics.length === 0 && form.surah && !form.ayahFrom && (
-                <span style={{ fontSize:11, color:"#555" }}>اختر الآية لتعبئة تلقائية</span>
+              {form.topics.length === 0 && form.surah && !form.ayahFrom && (
+                <span style={{ fontSize:11, color:"#555" }}>اختر الآية أولاً</span>
               )}
             </div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:6 }}>
               {form.topics.map(t=><TopicBadge key={t} topic={t} onRemove={()=>removeTopic(t)} />)}
-              {topicsLoading && (
-                <span style={{ display:"inline-flex", alignItems:"center", gap:5, background:"#C9A84C11", border:"1px dashed #C9A84C44", borderRadius:20, padding:"2px 12px", fontSize:12, color:"#C9A84C66" }}>
-                  جارٍ التحليل...
-                </span>
-              )}
             </div>
             <div style={{ position:"relative" }} ref={topicRef}>
               <input value={topicSearch} onChange={e=>{ setTopicSearch(e.target.value); setShowTopicDrop(true); }} onFocus={()=>setShowTopicDrop(true)}
@@ -1879,10 +1710,8 @@ ${ALL_TOPICS.join("، ")}
                 const surahNotes = filtered.filter(n=>n.surah===surahName);
                 if (!surahNotes.length) return null;
                 const surahData = SURAHS.find(s=>s.name===surahName);
-                const intro = surahIntros[surahName]||emptyIntro;
                 return (
                   <div key={surahName} style={{ marginBottom:28 }}>
-                    <SurahIntroCard apiKey={apiKey} surahName={surahName} surahData={surahData} intro={intro} onUpdate={i=>updateIntro(surahName,i)} />
                     <div style={{ color:"#555", fontSize:12, marginBottom:8 }}>{surahNotes.length} ملاحظة</div>
                     {surahNotes.map((n,i)=><NoteCard key={i} note={n} index={notes.indexOf(n)} onDelete={deleteNote} onTagClick={t=>{setFilterTag(t);}} />)}
                   </div>
