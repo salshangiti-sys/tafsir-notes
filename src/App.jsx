@@ -1003,209 +1003,123 @@ function MindMapView({ notes, surahIntros }) {
 // ── QUICK INPUT COMPONENT ──
 // ══════════════════════════════════════════════
 
-function QuickInputView({ onSaveNotes, apiKey }) {
-  const anthropicHeaders = () => ({
-    "Content-Type": "application/json",
-    "x-api-key": apiKey || "",
-    "anthropic-version": "2023-06-01",
-    "anthropic-dangerous-direct-browser-access": "true",
-  });
-  const [stage, setStage]         = useState("upload");   // upload | reviewing | done
-  const [rawText, setRawText]     = useState("");
-  const [parsing, setParsing]     = useState(false);
-  const [parsed, setParsed]       = useState([]);          // مصفوفة ملاحظات محللة
-  const [editIdx, setEditIdx]     = useState(null);
-  const [error, setError]         = useState("");
-  const fileRef = useRef(null);
+function parseNotes(text) {
+  // Split into blocks by --- or by detecting a new surah header line
+  const blocks = text.split(/\n---+\n/).map(b => b.trim()).filter(Boolean);
+  const results = [];
 
-  const imageRef = useRef(null);
+  for (const block of blocks) {
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
 
-  // ── تحليل الصورة ──
-  const handleImage = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setParsing(true); setError(""); setStage("upload");
-    try {
-      // تحويل الصورة إلى base64
-      const base64 = await new Promise((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = () => res(reader.result.split(",")[1]);
-        reader.onerror = rej;
-        reader.readAsDataURL(file);
-      });
-      const mediaType = file.type || "image/jpeg";
+    const note = { ...emptyNote, masail: [], colorKeys: [], topics: [], tags: [] };
+    let currentMasala = null;
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: anthropicHeaders(),
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 4000,
-          system: `أنت محلل ملاحظات تفسير القرآن. مهمتك قراءة الصورة المرفقة (template مكتوب بخط اليد أو مطبوع) واستخراج الملاحظات منها.
+    for (const line of lines) {
+      // Surah + ayah on first line: e.g. "الكهف ١" or "الكهف آية ١" or "الكهف ١-٢"
+      if (!note.surah) {
+        const surahMatch = line.match(/^([^\d٠-٩:]+?)\s*([\d٠-٩]+)?\s*[-–]?\s*([\d٠-٩]+)?$/);
+        if (surahMatch && surahMatch[1].trim().length > 1) {
+          note.surah = surahMatch[1].trim();
+          note.ayahFrom = surahMatch[2] || "";
+          note.ayahTo   = surahMatch[3] || surahMatch[2] || "";
+          continue;
+        }
+      }
+      // سورة: الكهف
+      if (/^سورة[:：]/.test(line)) { note.surah = line.replace(/^سورة[:：]\s*/, ""); continue; }
+      // آية: ١  or  من آية: ١
+      if (/^(آية|من آية|من|رقم الآية)[:：]/.test(line)) { note.ayahFrom = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
+      // إلى آية: ٢
+      if (/^(إلى آية|إلى|حتى آية)[:：]/.test(line)) { note.ayahTo = line.replace(/^[^:：]+[:：]\s*/, ""); continue; }
+      // صفحة: ١٥٠
+      if (/^صفحة[:：]/.test(line)) { note.page = line.replace(/^صفحة[:：]\s*/, ""); continue; }
 
-نظام الألوان:
-- م = أحكام فقهية ومسائل رئيسية
-- خ = خلاصة وترجيح القرطبي
-- د = أدلة وأحاديث وأسباب نزول
-- ت = لطائف تربوية وملاحظات شخصية
-
-قائمة الموضوعات المتاحة فقط:
-${ALL_TOPICS.join("، ")}
-
-أعد JSON صارماً فقط بدون أي نص أو markdown:
-{
-  "notes": [
-    {
-      "surah": "اسم السورة",
-      "ayahFrom": "رقم",
-      "ayahTo": "رقم",
-      "colorKeys": ["م","خ","د","ت"],
-      "meaning": "المعنى الإجمالي",
-      "masail": ["المسألة الأولى","المسألة الثانية"],
-      "reflection": "الفوائد وما استوقف الكاتب",
-      "topics": ["موضوع من القائمة فقط"],
-      "tags": ["وسم حر"]
+      // م: المعنى
+      if (/^م[:：]/.test(line)) {
+        note.meaning = (note.meaning ? note.meaning + "\n" : "") + line.replace(/^م[:：]\s*/, "");
+        if (!note.colorKeys.includes("م")) note.colorKeys.push("م");
+        continue;
+      }
+      // خ: خلاصة القرطبي → goes into masail
+      if (/^خ[:：]/.test(line)) {
+        note.masail.push("خلاصة القرطبي: " + line.replace(/^خ[:：]\s*/, ""));
+        if (!note.colorKeys.includes("خ")) note.colorKeys.push("خ");
+        continue;
+      }
+      // د: دليل → goes into masail
+      if (/^د[:：]/.test(line)) {
+        note.masail.push("دليل: " + line.replace(/^د[:：]\s*/, ""));
+        if (!note.colorKeys.includes("د")) note.colorKeys.push("د");
+        continue;
+      }
+      // ت: لطيفة → reflection
+      if (/^ت[:：]/.test(line)) {
+        note.reflection = (note.reflection ? note.reflection + "\n" : "") + line.replace(/^ت[:：]\s*/, "");
+        if (!note.colorKeys.includes("ت")) note.colorKeys.push("ت");
+        continue;
+      }
+      // مسألة ١: ...
+      if (/^مسألة\s*[\d٠-٩]*[:：]/.test(line)) {
+        note.masail.push(line.replace(/^مسألة\s*[\d٠-٩]*[:：]\s*/, ""));
+        continue;
+      }
+      // وسوم: وسم١، وسم٢
+      if (/^(وسوم|وسم|tags)[:：]/.test(line)) {
+        const tags = line.replace(/^[^:：]+[:：]\s*/, "").split(/[،,]/).map(t=>t.trim()).filter(Boolean);
+        note.tags.push(...tags);
+        continue;
+      }
+      // موضوعات: ...
+      if (/^(موضوع|موضوعات|topics)[:：]/.test(line)) {
+        const tops = line.replace(/^[^:：]+[:：]\s*/, "").split(/[،,]/).map(t=>t.trim()).filter(Boolean);
+        note.topics.push(...tops.filter(t => ALL_TOPICS.includes(t)));
+        continue;
+      }
     }
-  ]
+
+    if (note.surah) {
+      if (!note.ayahTo) note.ayahTo = note.ayahFrom;
+      results.push(note);
+    }
+  }
+  return results;
 }
 
-قواعد:
-- اقرأ كل ما هو مكتوب بعناية حتى الخط اليدوي
-- إذا كان هناك عدة آيات في الصورة افصلها
-- الموضوعات من القائمة فقط
-- إذا كانت خانة فارغة اتركها فارغة`,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-              { type: "text", text: "حلل هذا الـ template المكتوب واستخرج منه الملاحظات بصيغة JSON." }
-            ]
-          }]
-        })
-      });
-      const data = await response.json();
-      const raw = data.content?.find(b => b.type === "text")?.text || "{}";
-      const clean = raw.replace(/```json|```/g, "").trim();
-      const result = JSON.parse(clean);
-      const notes = (result.notes || []).map(n => ({
-        ...emptyNote, ...n,
-        ayahFrom:  String(n.ayahFrom || ""),
-        ayahTo:    String(n.ayahTo || ""),
-        masail:    Array.isArray(n.masail) ? n.masail.filter(m => m?.trim()) : [],
-        topics:    (n.topics || []).filter(t => ALL_TOPICS.includes(t)),
-        tags:      Array.isArray(n.tags) ? n.tags : [],
-        colorKeys: Array.isArray(n.colorKeys) ? n.colorKeys.filter(k => COLOR_SYSTEM.some(c => c.key === k)) : [],
-      }));
-      if (notes.length === 0) throw new Error("لم يُستخرج شيء");
-      setParsed(notes);
-      setStage("reviewing");
-    } catch {
-      setError("تعذّر قراءة الصورة — تأكد أن الصورة واضحة وحاول مجدداً");
-    } finally {
-      setParsing(false);
-    }
-  };
+function QuickInputView({ onSaveNotes }) {
+  const [stage, setStage]   = useState("input");
+  const [rawText, setRawText] = useState("");
+  const [parsed, setParsed]   = useState([]);
+  const [error, setError]     = useState("");
+  const fileRef = useRef(null);
 
-  // ── قراءة ملف نصي ──
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => { setRawText(ev.target.result); setStage("upload"); setError(""); };
+    reader.onload = ev => { setRawText(ev.target.result); setError(""); };
     reader.readAsText(file, "UTF-8");
   };
 
-  // ── إرسال للتحليل ──
-  const analyzeText = async () => {
-    if (!rawText.trim()) return setError("الرجاء رفع ملف أو كتابة نص");
-    setParsing(true); setError("");
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers: anthropicHeaders(),
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:4000,
-          system:`أنت محلل ملاحظات تفسير القرآن. مهمتك تحويل النص الحر إلى ملاحظات منظمة.
-
-نظام الألوان:
-- م = أحكام فقهية ومسائل رئيسية
-- خ = خلاصة وترجيح القرطبي
-- د = أدلة وأحاديث وأسباب نزول
-- ت = لطائف تربوية وملاحظات شخصية
-
-قائمة الموضوعات المتاحة فقط:
-${ALL_TOPICS.join("، ")}
-
-أعد JSON صارماً فقط بدون أي نص أو markdown، بهذا الشكل:
-{
-  "notes": [
-    {
-      "surah": "اسم السورة بالعربي",
-      "ayahFrom": "رقم",
-      "ayahTo": "رقم",
-      "colorKeys": ["م","خ","د","ت"],
-      "meaning": "المعنى الإجمالي المستخلص",
-      "masail": ["ملخص المسألة الأولى","ملخص المسألة الثانية"],
-      "reflection": "الفوائد وما استوقف الكاتب",
-      "topics": ["موضوع من القائمة فقط"],
-      "tags": ["وسم حر"]
-    }
-  ]
-}
-
-قواعد مهمة:
-- إذا ذُكرت آيات متعددة افصلها كملاحظات منفصلة
-- المسائل: كل سطر يبدأبـ "مسألة" يصبح مسألة مستقلة
-- الموضوعات: من القائمة أعلاه فقط، ٢-٤ موضوعات
-- الوسوم: أسماء أعلام أو مصطلحات بارزة في النص
-- ayahTo = ayahFrom إذا لم تُذكر نهاية`,
-          messages:[{ role:"user", content: `حلل هذه الملاحظات:\n\n${rawText}` }]
-        })
-      });
-      const data = await res.json();
-      const raw  = data.content?.find(b=>b.type==="text")?.text || "{}";
-      const clean = raw.replace(/```json|```/g,"").trim();
-      const result = JSON.parse(clean);
-      const notes  = (result.notes || []).map(n => ({
-        ...emptyNote,
-        ...n,
-        ayahFrom: String(n.ayahFrom||""),
-        ayahTo:   String(n.ayahTo||""),
-        masail:   Array.isArray(n.masail) ? n.masail.filter(m=>m?.trim()) : [],
-        topics:   (n.topics||[]).filter(t=>ALL_TOPICS.includes(t)),
-        tags:     Array.isArray(n.tags) ? n.tags : [],
-        colorKeys:Array.isArray(n.colorKeys) ? n.colorKeys.filter(k=>COLOR_SYSTEM.some(c=>c.key===k)) : [],
-      }));
-      if (notes.length === 0) throw new Error("لم يُستخرج شيء");
-      setParsed(notes);
-      setStage("reviewing");
-    } catch(e) {
-      setError("تعذّر التحليل — تأكد من صيغة الملف أو حاول مجدداً");
-    } finally {
-      setParsing(false);
-    }
+  const analyze = () => {
+    if (!rawText.trim()) return setError("الرجاء كتابة الملاحظات أولاً");
+    const results = parseNotes(rawText);
+    if (results.length === 0) return setError("لم يُعثر على ملاحظات — تأكد من الصيغة في المثال أدناه");
+    setParsed(results);
+    setStage("reviewing");
+    setError("");
   };
 
-  // ── حفظ الكل ──
-  const saveAll = () => {
-    onSaveNotes(parsed);
-    setParsed([]); setRawText(""); setStage("done");
-  };
-
-  // ── حذف ملاحظة من القائمة ──
+  const saveAll = () => { onSaveNotes(parsed); setParsed([]); setRawText(""); setStage("done"); };
   const removeNote = (i) => setParsed(p => p.filter((_,idx)=>idx!==i));
-
-  // ── تعديل حقل في ملاحظة ──
   const updateNote = (i, field, val) => setParsed(p => p.map((n,idx)=>idx===i?{...n,[field]:val}:n));
 
-  // ── واجهة الرفع ──
   if (stage === "done") return (
     <div style={{ maxWidth:600, margin:"0 auto", textAlign:"center", padding:60 }}>
       <div style={{ fontSize:48, marginBottom:16 }}>✅</div>
       <div style={{ color:"#27AE60", fontSize:20, fontWeight:700, marginBottom:8 }}>تم الحفظ بنجاح</div>
       <div style={{ color:"#555", fontSize:14, marginBottom:24 }}>انتقل إلى "الملاحظات" لمراجعتها</div>
-      <button onClick={()=>setStage("upload")} style={{ background:"#C9A84C", color:"#000", border:"none", borderRadius:10, padding:"10px 28px", fontFamily:"inherit", fontWeight:700, fontSize:15, cursor:"pointer" }}>
+      <button onClick={()=>setStage("input")} style={{ background:"#C9A84C", color:"#000", border:"none", borderRadius:10, padding:"10px 28px", fontFamily:"inherit", fontWeight:700, fontSize:15, cursor:"pointer" }}>
         إدخال جديد
       </button>
     </div>
@@ -1213,111 +1127,84 @@ ${ALL_TOPICS.join("، ")}
 
   if (stage === "reviewing") return (
     <div style={{ maxWidth:700, margin:"0 auto" }}>
-      {/* Header */}
       <div style={{ background:"#13132a", borderRadius:12, padding:"14px 20px", marginBottom:16, border:"1px solid #2a2a4a", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
         <div>
-          <div style={{ color:"#C9A84C", fontWeight:700, fontSize:16 }}>مراجعة الملاحظات المحللة</div>
+          <div style={{ color:"#C9A84C", fontWeight:700, fontSize:16 }}>مراجعة الملاحظات</div>
           <div style={{ color:"#555", fontSize:12, marginTop:3 }}>استُخرجت {parsed.length} ملاحظة — راجع وعدّل ثم اعتمد</div>
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <button onClick={()=>setStage("upload")} style={{ background:"transparent", color:"#888", border:"1px solid #2a2a4a", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontFamily:"inherit", fontSize:13 }}>↺ إعادة</button>
+          <button onClick={()=>setStage("input")} style={{ background:"transparent", color:"#888", border:"1px solid #2a2a4a", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontFamily:"inherit", fontSize:13 }}>↺ تعديل النص</button>
           <button onClick={saveAll} disabled={parsed.length===0}
             style={{ background:"linear-gradient(135deg,#C9A84C,#a07830)", color:"#fff", border:"none", borderRadius:8, padding:"6px 18px", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:14 }}>
             اعتماد الكل ({parsed.length}) ←
           </button>
         </div>
       </div>
-
-      {/* قائمة الملاحظات */}
       {parsed.map((note, i) => (
         <ParsedNoteCard key={i} note={note} index={i}
           onUpdate={(f,v)=>updateNote(i,f,v)}
           onRemove={()=>removeNote(i)} />
       ))}
-
       {parsed.length === 0 && (
-        <div style={{ textAlign:"center", color:"#555", padding:40 }}>حذفت كل الملاحظات — اضغط "إعادة" لرفع ملف جديد</div>
+        <div style={{ textAlign:"center", color:"#555", padding:40 }}>حذفت كل الملاحظات — اضغط "تعديل النص" للرجوع</div>
       )}
     </div>
   );
 
-  // stage === "upload"
+  // stage === "input"
   return (
-    <div style={{ maxWidth:600, margin:"0 auto" }}>
-      {/* شرح سريع */}
+    <div style={{ maxWidth:620, margin:"0 auto" }}>
+      {/* صيغة الكتابة */}
       <div style={{ background:"linear-gradient(135deg,#0f1a2e,#1a1a0f)", border:"1px solid #C9A84C33", borderRadius:16, padding:"18px 20px", marginBottom:20 }}>
-        <div style={{ color:"#C9A84C", fontWeight:700, fontSize:15, marginBottom:12 }}>⚡ كيف يعمل الإدخال السريع</div>
-        <div style={{ color:"#8899bb", fontSize:12, lineHeight:2.2 }}>
-          <div>١. اكتب ملاحظاتك بحرية في Notes أو أي تطبيق نصي</div>
-          <div>٢. استخدم رموز الألوان: <span style={{color:"#FFF275"}}>م</span> <span style={{color:"#D6B4FC"}}>خ</span> <span style={{color:"#A3E635"}}>د</span> <span style={{color:"#FF9F1C"}}>ت</span> قبل كل فقرة</div>
-          <div>٣. اذكر اسم السورة ورقم الآية في البداية</div>
-          <div>٤. ارفع الملف هنا → Claude يرتبها → تراجع وتعتمد</div>
+        <div style={{ color:"#C9A84C", fontWeight:700, fontSize:15, marginBottom:10 }}>⚡ صيغة الإدخال السريع</div>
+        <div style={{ color:"#8899bb", fontSize:12, lineHeight:2, marginBottom:12 }}>
+          اكتب ملاحظاتك بالصيغة التالية ثم اضغط "تحليل" — بدون إنترنت أو API
         </div>
-        {/* مثال */}
-        <div style={{ marginTop:14, background:"#0d0d1a", borderRadius:10, padding:"12px 14px", border:"1px solid #2a2a3a" }}>
-          <div style={{ color:"#555", fontSize:11, marginBottom:6 }}>مثال على الكتابة الحرة:</div>
-          <pre style={{ color:"#aaa", fontSize:12, lineHeight:1.9, margin:0, whiteSpace:"pre-wrap", fontFamily:"Cairo,serif" }}>{`البقرة ٢٨٢
-م: يجب كتابة الديون حتى الصغيرة
-د: "ولا تسأموا أن تكتبوه صغيراً أو كبيراً"
-ت: تذكرني بأهمية التوثيق في حياتنا اليوم
-خ: القرطبي رجح الوجوب لا الاستحباب
-مسألة ١: هل الكتابة فرض أم سنة؟
-مسألة ٢: من يتولى الكتابة؟`}</pre>
+        <div style={{ background:"#0d0d1a", borderRadius:10, padding:"12px 14px", border:"1px solid #2a2a3a" }}>
+          <div style={{ color:"#555", fontSize:11, marginBottom:6 }}>مثال:</div>
+          <pre style={{ color:"#aaa", fontSize:12, lineHeight:2, margin:0, whiteSpace:"pre-wrap", fontFamily:"Cairo,serif" }}>{`الكهف ١
+م: الحمد لله الذي أنزل القرآن على محمد
+خ: القرطبي: المقصود هو القرآن لا غيره
+د: حديث فضل سورة الكهف
+ت: القرآن أفضل الكتب السماوية
+مسألة ١: ما المراد بالعبد في الآية؟
+مسألة ٢: لماذا أضاف الهاء في الأخير؟
+وسوم: القرطبي، فضائل القرآن
+---
+الكهف ٢
+م: القرآن قيّم لا عوج فيه
+مسألة ١: معنى قيّماً`}</pre>
+        </div>
+        <div style={{ marginTop:10, color:"#666", fontSize:11, lineHeight:1.8 }}>
+          <strong style={{color:"#C9A84C"}}>م:</strong> المعنى الإجمالي &nbsp;·&nbsp;
+          <strong style={{color:"#D6B4FC"}}>خ:</strong> خلاصة القرطبي &nbsp;·&nbsp;
+          <strong style={{color:"#A3E635"}}>د:</strong> دليل أو حديث &nbsp;·&nbsp;
+          <strong style={{color:"#FF9F1C"}}>ت:</strong> لطيفة تربوية &nbsp;·&nbsp;
+          <strong style={{color:"#aaa"}}>---</strong> للفصل بين الآيات
         </div>
       </div>
 
-      {/* منطقة الرفع */}
+      {/* منطقة الإدخال */}
       <div style={{ background:"#13132a", borderRadius:16, padding:24, border:"1px solid #2a2a4a" }}>
-
-        {/* رفع صورة الـ template */}
-        <div style={{ marginBottom:16 }}>
-          <Label>📸 رفع صورة الـ template المكتوب</Label>
-          <div
-            onClick={()=>imageRef.current?.click()}
-            style={{ border:"2px dashed #C9A84C44", borderRadius:12, padding:"22px 20px", textAlign:"center", cursor:"pointer", background:"#C9A84C08", transition:"all .2s", marginTop:6 }}
-            onMouseEnter={e=>{ e.currentTarget.style.borderColor="#C9A84C88"; e.currentTarget.style.background="#C9A84C11"; }}
-            onMouseLeave={e=>{ e.currentTarget.style.borderColor="#C9A84C44"; e.currentTarget.style.background="#C9A84C08"; }}>
-            <div style={{ fontSize:28, marginBottom:6 }}>📷</div>
-            <div style={{ color:"#C9A84C", fontSize:14, fontWeight:700 }}>اضغط لرفع صورة الـ Template</div>
-            <div style={{ color:"#555", fontSize:11, marginTop:3 }}>JPG · PNG · HEIC — صورة من iPad أو iPhone</div>
-            <input ref={imageRef} type="file" accept="image/*" onChange={handleImage} style={{ display:"none" }} />
-          </div>
-          {parsing && (
-            <div style={{ marginTop:10, color:"#C9A84C", fontSize:13, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-              <span style={{ animation:"pulse 1s infinite", display:"inline-block" }}>⏳</span>
-              Claude يقرأ خطك ويحلل الملاحظات...
-            </div>
-          )}
-        </div>
-
-        <div style={{ color:"#333", fontSize:12, textAlign:"center", margin:"12px 0" }}>— أو رفع ملف نصي —</div>
-
-        <Label>📄 رفع ملف .txt أو .md</Label>
-        <div
-          onClick={()=>fileRef.current?.click()}
-          style={{ border:"2px dashed #2a2a4a", borderRadius:12, padding:"20px", textAlign:"center", cursor:"pointer", marginTop:6, marginBottom:14, transition:"border-color .2s" }}
-          onMouseEnter={e=>e.currentTarget.style.borderColor="#C9A84C66"}
-          onMouseLeave={e=>e.currentTarget.style.borderColor="#2a2a4a"}>
-          <div style={{ fontSize:22, marginBottom:4 }}>📄</div>
-          <div style={{ color:"#888", fontSize:13 }}>اضغط لرفع ملف نصي</div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <Label>اكتب أو الصق ملاحظاتك هنا</Label>
+          <button onClick={()=>fileRef.current?.click()}
+            style={{ background:"transparent", color:"#C9A84C", border:"1px solid #C9A84C44", borderRadius:8, padding:"4px 12px", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
+            📄 رفع ملف .txt
+          </button>
           <input ref={fileRef} type="file" accept=".txt,.md,text/*" onChange={handleFile} style={{ display:"none" }} />
         </div>
-
-        {/* أو كتابة مباشرة */}
-        <div style={{ color:"#444", fontSize:12, textAlign:"center", marginBottom:10 }}>— أو الصق النص مباشرة —</div>
         <textarea
           value={rawText}
-          onChange={e=>setRawText(e.target.value)}
-          rows={8}
-          placeholder={`البقرة ٢٨٢\nم: ...\nد: ...\nمسألة ١: ...`}
-          style={{ ...textareaStyle, fontSize:13, lineHeight:1.9, marginBottom:12 }}
+          onChange={e=>{ setRawText(e.target.value); setError(""); }}
+          rows={12}
+          placeholder={"الكهف ١\nم: ...\nخ: ...\nمسألة ١: ..."}
+          style={{ ...textareaStyle, fontSize:13, lineHeight:2, marginBottom:12 }}
         />
-
         {error && <div style={{ color:"#ff6b6b", fontSize:13, marginBottom:10, padding:"8px 12px", background:"#3a000022", borderRadius:8, border:"1px solid #ff6b6b33" }}>{error}</div>}
-
-        <button onClick={analyzeText} disabled={parsing || !rawText.trim()}
-          style={{ width:"100%", padding:"12px", background: parsing?"#2a2a4a":"linear-gradient(135deg,#C9A84C,#a07830)", color: parsing?"#666":"#fff", border:"none", borderRadius:10, fontFamily:"inherit", fontWeight:700, fontSize:16, cursor: parsing?"not-allowed":"pointer", transition:"all .2s" }}>
-          {parsing ? "⏳ جارٍ التحليل..." : "✨ تحليل بالذكاء الاصطناعي ←"}
+        <button onClick={analyze} disabled={!rawText.trim()}
+          style={{ width:"100%", padding:"12px", background: rawText.trim()?"linear-gradient(135deg,#C9A84C,#a07830)":"#2a2a4a", color: rawText.trim()?"#fff":"#555", border:"none", borderRadius:10, fontFamily:"inherit", fontWeight:700, fontSize:16, cursor: rawText.trim()?"pointer":"not-allowed", transition:"all .2s" }}>
+          ⚡ تحليل الملاحظات ←
         </button>
       </div>
     </div>
