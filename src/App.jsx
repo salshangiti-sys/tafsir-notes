@@ -1105,6 +1105,31 @@ function QuickInputView({ onSaveNotes }) {
 
   const analyze = () => {
     if (!rawText.trim()) return setError("الرجاء كتابة الملاحظات أولاً");
+
+    // If Claude.ai returned JSON directly, parse it without any API call
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith("{") && trimmed.includes('"notes"')) {
+      try {
+        const result = JSON.parse(trimmed);
+        const notes = (result.notes || []).map(n => ({
+          ...emptyNote, ...n,
+          ayahFrom: String(n.ayahFrom || ""),
+          ayahTo:   String(n.ayahTo || ""),
+          masail:   Array.isArray(n.masail) ? n.masail.filter(m => m?.trim()) : [],
+          topics:   (n.topics || []).filter(t => ALL_TOPICS.includes(t)),
+          tags:     Array.isArray(n.tags) ? n.tags : [],
+          colorKeys:Array.isArray(n.colorKeys) ? n.colorKeys.filter(k => COLOR_SYSTEM.some(c => c.key === k)) : [],
+        }));
+        if (notes.length > 0) {
+          setParsed(notes);
+          setStage("reviewing");
+          setError("");
+          return;
+        }
+      } catch {}
+    }
+
+    // Otherwise use the local text parser
     const results = parseNotes(rawText);
     if (results.length === 0) return setError("لم يُعثر على ملاحظات — تأكد من الصيغة في المثال أدناه");
     setParsed(results);
