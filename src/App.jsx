@@ -336,14 +336,14 @@ ${body}
 const STORAGE_KEY_NOTES   = "tafsir-notes-v2";
 const STORAGE_KEY_INTROS  = "tafsir-intros-v2";
 
-async function loadFromStorage(key, fallback) {
+function loadFromStorage(key, fallback) {
   try {
-    const res = await window.storage.get(key);
-    return res ? JSON.parse(res.value) : fallback;
+    const val = localStorage.getItem(key);
+    return val ? JSON.parse(val) : fallback;
   } catch { return fallback; }
 }
-async function saveToStorage(key, data) {
-  try { await window.storage.set(key, JSON.stringify(data)); } catch {}
+function saveToStorage(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 }
 
 // ── Highlight badge ──
@@ -1328,13 +1328,11 @@ export default function App() {
 
   // Load from storage on mount
   useEffect(() => {
-    (async () => {
-      const savedNotes  = await loadFromStorage(STORAGE_KEY_NOTES, []);
-      const savedIntros = await loadFromStorage(STORAGE_KEY_INTROS, {});
-      setNotes(savedNotes);
-      setSurahIntros(savedIntros);
-      setReady(true);
-    })();
+    const savedNotes  = loadFromStorage(STORAGE_KEY_NOTES, []);
+    const savedIntros = loadFromStorage(STORAGE_KEY_INTROS, {});
+    setNotes(savedNotes);
+    setSurahIntros(savedIntros);
+    setReady(true);
   }, []);
 
   // Persist notes
