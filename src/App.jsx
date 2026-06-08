@@ -896,15 +896,15 @@ function AyahMindMap({ note, width }) {
   const tagList    = (note.tags   || []);
   const ayah = note.ayahFrom === note.ayahTo ? note.ayahFrom : `${note.ayahFrom}–${note.ayahTo}`;
 
-  // Per-type color style — fill uses separate fillOp so SVG fillOpacity works correctly
-  // (8-digit hex alpha isn't supported by all SVG renderers)
+  // Per-type color style — cssFill uses 8-digit hex via style={} (CSS Color 4 parsing)
+  // NOT as an SVG presentation attribute, so alpha is respected by all modern renderers
   const MS = {
-    م: { fill:"#FFF275", fillOp:0.22, stroke:"#FFF275", text:"#8a8600", badge:"#FFF275" },
-    خ: { fill:"#D6B4FC", fillOp:0.22, stroke:"#D6B4FC", text:"#5a1f8a", badge:"#D6B4FC" },
-    د: { fill:"#A3E635", fillOp:0.22, stroke:"#A3E635", text:"#3d6600", badge:"#A3E635" },
-    ت: { fill:"#FF9F1C", fillOp:0.22, stroke:"#FF9F1C", text:"#7a4000", badge:"#FF9F1C" },
+    م: { cssFill:"#FFF27533", stroke:"#FFF275", strokeOp:0.8, text:"#8a8600", badge:"#FFF275" },
+    خ: { cssFill:"#D6B4FC33", stroke:"#D6B4FC", strokeOp:0.8, text:"#5a1f8a", badge:"#D6B4FC" },
+    د: { cssFill:"#A3E63533", stroke:"#A3E635", strokeOp:0.8, text:"#3d6600", badge:"#A3E635" },
+    ت: { cssFill:"#FF9F1C33", stroke:"#FF9F1C", strokeOp:0.8, text:"#7a4000", badge:"#FF9F1C" },
   };
-  const DS = { fill:"#1a1a2e", fillOp:1, stroke:"#555577", text:"#aaa", badge:"#555577" };
+  const DS = { cssFill:"#1a1a2e", stroke:"#555577", strokeOp:1, text:"#aaa", badge:"#555577" };
 
   const parseMC = (txt = "") => {
     const m = txt.match(/^([مخدت])\s*[—–-]\s*/);
@@ -933,7 +933,8 @@ function AyahMindMap({ note, width }) {
   const cx     = Math.round(svgW / 2);
   const nW     = 172, nH = 62;       // masala node
   const cW     = 140, cH = 68;       // center node
-  const armX   = 280;                // horiz distance center→node-center (wider spread)
+  const armX   = 220;                // horiz distance center→node-center
+  const leafDX = 160;                // extra distance from arm to leaf (topics/tags)
   const gapY   = 90;                 // vert gap between nodes on same side
 
   const maxN     = Math.max(leftData.length, rightData.length, 1);
@@ -977,10 +978,10 @@ function AyahMindMap({ note, width }) {
         <g key={`n${item.idx}`}
           onMouseEnter={() => setHoverIdx(item.idx)}
           onMouseLeave={() => setHoverIdx(null)}>
-          {/* Node box — fillOpacity keeps SVG colour correct across all renderers */}
+          {/* Node box — style.fill uses CSS Color 4 parsing so 8-digit hex alpha works */}
           <rect x={nodeX} y={ny-nH/2} width={nW} height={nH} rx={11}
-            fill={item.st.fill} fillOpacity={item.st.fillOp}
-            stroke={item.st.stroke} strokeOpacity={isHov ? 1 : 0.7}
+            style={{ fill: item.st.cssFill }}
+            stroke={item.st.stroke} strokeOpacity={isHov ? 1 : item.st.strokeOp}
             strokeWidth={isHov ? 2 : 1}/>
           {/* Color badge */}
           {item.colorKey && <>
@@ -1019,7 +1020,7 @@ function AyahMindMap({ note, width }) {
   const tPillH   = 22;
   const tPillGap = 8;
   // Each pill is wide enough for its full text
-  const topicPillWidths = topicList.map(t => Math.max(110, t.length * 13 + 28));
+  const topicPillWidths = topicList.map(t => Math.max(120, t.length * 13 + 32));
   // Layout in rows fitting svgW - 80
   const tRows = [];
   let tRow = [], tRowW = 0;
