@@ -537,20 +537,24 @@ function parseMasalaColor(text) {
 }
 
 // ── Masail Editor ──
+// masail is array of { text: string, colorKey: string }
 function MasailEditor({ masail, onChange }) {
   const [count, setCount] = useState(masail.length || 0);
 
   const handleCountChange = (n) => {
     const num = Math.min(20, Math.max(0, Number(n)));
     setCount(num);
-    // اجعل المصفوفة بطول num، احتفظ بالقيم الموجودة
-    const next = Array.from({ length: num }, (_, i) => masail[i] ?? "");
+    const next = Array.from({ length: num }, (_, i) => masail[i] ?? { text: "", colorKey: "" });
     onChange(next);
   };
 
   const handleText = (i, val) => {
-    const next = [...masail];
-    next[i] = val;
+    const next = masail.map((m,idx) => idx===i ? { ...m, text: val } : m);
+    onChange(next);
+  };
+
+  const handleColor = (i, key) => {
+    const next = masail.map((m,idx) => idx===i ? { ...m, colorKey: m.colorKey===key ? "" : key } : m);
     onChange(next);
   };
 
@@ -571,48 +575,61 @@ function MasailEditor({ masail, onChange }) {
         </div>
       </div>
 
-      {/* مربعات المسائل */}
       {count === 0 && (
         <div style={{ color:"#444", fontSize:13, fontStyle:"italic", textAlign:"center", padding:"14px 0" }}>
-          اختر عدد المسائل بالضغط على + أو الكتابة في الحقل
+          اختر عدد المسائل بالضغط على +
         </div>
       )}
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {Array.from({ length: count }, (_, i) => (
-          <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
-            {/* رقم المسألة */}
-            <div style={{ flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:2, paddingTop:8 }}>
-              <div style={{ width:28, height:28, borderRadius:"50%", background:"linear-gradient(135deg,#C9A84C,#a07830)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:13, color:"#fff" }}>
+
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {Array.from({ length: count }, (_, i) => {
+          const item = masail[i] || { text: "", colorKey: "" };
+          return (
+            <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+              {/* رقم */}
+              <div style={{ flexShrink:0, width:28, height:28, borderRadius:"50%", background:"linear-gradient(135deg,#C9A84C,#a07830)", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:13, color:"#fff", marginTop:8 }}>
                 {i+1}
               </div>
-            </div>
-            {/* محتوى المسألة */}
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:3 }}>
-                <div style={{ color:"#8899bb", fontSize:11, fontWeight:600 }}>
-                  المسألة {ARABIC_ORDINALS[i] || (i+1)}
+              {/* المحتوى */}
+              <div style={{ flex:1 }}>
+                {/* Label + mini color picker */}
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+                  <div style={{ color:"#8899bb", fontSize:11, fontWeight:600 }}>المسألة {ARABIC_ORDINALS[i]||(i+1)}</div>
+                  <div style={{ display:"flex", gap:3 }}>
+                    {COLOR_SYSTEM.map(cs => (
+                      <button key={cs.key} onClick={()=>handleColor(i, cs.key)}
+                        title={cs.label}
+                        style={{
+                          width:22, height:22, borderRadius:6, border: item.colorKey===cs.key ? `2px solid ${cs.color}` : "1px solid #2a2a4a",
+                          background: item.colorKey===cs.key ? cs.color : "transparent",
+                          color: item.colorKey===cs.key ? "#111" : cs.color,
+                          fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit",
+                          transition:"all .15s"
+                        }}>
+                        {cs.key}
+                      </button>
+                    ))}
+                  </div>
+                  {item.colorKey && <HighlightBadge colorKey={item.colorKey} size="sm" />}
                 </div>
-                {masail[i] && parseMasalaColor(masail[i]).colorKey && (
-                  <HighlightBadge colorKey={parseMasalaColor(masail[i]).colorKey} size="sm" />
-                )}
+                <textarea
+                  value={item.text}
+                  onChange={e=>handleText(i, e.target.value)}
+                  rows={2}
+                  placeholder={`ملخص المسألة ${ARABIC_ORDINALS[i]||(i+1)}...`}
+                  style={{ background:"#0d0d1a", border:`1px solid ${item.colorKey ? COLOR_SYSTEM.find(c=>c.key===item.colorKey)?.border || "#C9A84C33" : "#C9A84C33"}`, borderRadius:8, color:"#e0e0e0", padding:"8px 12px", fontSize:13, fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box", resize:"vertical", lineHeight:1.8, transition:"border-color .15s" }}
+                  onFocus={e=>e.target.style.borderColor="#C9A84C99"}
+                  onBlur={e=>e.target.style.borderColor= item.colorKey ? (COLOR_SYSTEM.find(c=>c.key===item.colorKey)?.border||"#C9A84C33") : "#C9A84C33"}
+                />
               </div>
-              <textarea
-                value={masail[i] ?? ""}
-                onChange={e=>handleText(i, e.target.value)}
-                rows={2}
-                placeholder={`ملخص المسألة ${ARABIC_ORDINALS[i] || (i+1)}...`}
-                style={{ background:"#0d0d1a", border:"1px solid #C9A84C33", borderRadius:8, color:"#e0e0e0", padding:"8px 12px", fontSize:13, fontFamily:"inherit", outline:"none", width:"100%", boxSizing:"border-box", resize:"vertical", lineHeight:1.8, transition:"border-color .15s" }}
-                onFocus={e=>e.target.style.borderColor="#C9A84C99"}
-                onBlur={e=>e.target.style.borderColor="#C9A84C33"}
-              />
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {count > 0 && (
         <div style={{ marginTop:6, color:"#444", fontSize:11, textAlign:"left" }}>
-          {masail.filter(m=>m.trim()).length} / {count} مسألة مكتملة
+          {masail.filter(m=>m?.text?.trim()).length} / {count} مسألة مكتملة
         </div>
       )}
     </div>
@@ -1572,7 +1589,12 @@ ${ALL_TOPICS.join("، ")}
   const save = () => {
     if (!form.surah) return alert("اختر السورة");
     if (!surahIntros[form.surah]) setSurahIntros(s=>({...s,[form.surah]:{...emptyIntro}}));
-    setNotes(n=>[{ ...form, masail: form.masail.filter(m=>m?.trim()) },...n]);
+    // Convert masail objects → strings with color prefix, derive colorKeys from masail
+    const masailStrings = form.masail
+      .filter(m => m?.text?.trim())
+      .map(m => m.colorKey ? `${m.colorKey} — ${m.text.trim()}` : m.text.trim());
+    const derivedColorKeys = [...new Set(form.masail.filter(m=>m?.colorKey).map(m=>m.colorKey))];
+    setNotes(n=>[{ ...form, masail: masailStrings, colorKeys: derivedColorKeys },...n]);
     setForm(emptyNote);
     setView("list");
   };
@@ -1731,12 +1753,6 @@ ${ALL_TOPICS.join("، ")}
               <Label>رقم الصفحة</Label>
               <input type="number" value={form.page} onChange={e=>set("page",e.target.value)} placeholder="45" style={inputStyle} />
             </div>
-          </div>
-
-          {/* Color System Picker */}
-          <div style={{ marginBottom:14, background:"#0d0d1a", borderRadius:12, padding:"12px 14px", border:"1px solid #2a2a4a" }}>
-            <Label>نوع الملاحظة (نظام الألوان)</Label>
-            <ColorPicker selected={form.colorKeys||[]} onChange={v=>set("colorKeys",v)} />
           </div>
 
           {/* Topics */}
