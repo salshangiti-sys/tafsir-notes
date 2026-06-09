@@ -886,7 +886,6 @@ function AyahMindMap({ note, width }) {
   const [editDraft,  setEditDraft]              = useState({ line1:"", line2:"" });
   const [hoverIdx,   setHoverIdx]               = useState(null);
 
-  // Clear overrides when note changes
   useEffect(() => { setDisplayOverrides({}); setEditingIdx(null); }, [note.surah, note.ayahFrom, note.ayahTo]);
 
   const masailList = (note.masail || []).filter(m => m?.trim());
@@ -894,145 +893,122 @@ function AyahMindMap({ note, width }) {
   const tagList    = (note.tags   || []);
   const ayah = note.ayahFrom === note.ayahTo ? note.ayahFrom : `${note.ayahFrom}–${note.ayahTo}`;
 
-  // Per-type color style — cssFill uses 8-digit hex via style={} (CSS Color 4 parsing)
-  // NOT as an SVG presentation attribute, so alpha is respected by all modern renderers
-  const MS = {
-    م: { cssFill:"#FFF27533", stroke:"#FFF275", strokeOp:0.8, text:"#8a8600", badge:"#FFF275" },
-    خ: { cssFill:"#D6B4FC33", stroke:"#D6B4FC", strokeOp:0.8, text:"#5a1f8a", badge:"#D6B4FC" },
-    د: { cssFill:"#A3E63533", stroke:"#A3E635", strokeOp:0.8, text:"#3d6600", badge:"#A3E635" },
-    ت: { cssFill:"#FF9F1C33", stroke:"#FF9F1C", strokeOp:0.8, text:"#7a4000", badge:"#FF9F1C" },
+  // ── Color map (CSS fill via style={} for 8-digit hex alpha support) ──
+  const COLOR_MAP = {
+    م: { fill:"#FFF27533", stroke:"#FFF275", text:"#8a8600",  badge:"#FFF275" },
+    خ: { fill:"#D6B4FC33", stroke:"#D6B4FC", text:"#5a1f8a",  badge:"#D6B4FC" },
+    د: { fill:"#A3E63533", stroke:"#A3E635", text:"#3d6600",  badge:"#A3E635" },
+    ت: { fill:"#FF9F1C33", stroke:"#FF9F1C", text:"#7a4000",  badge:"#FF9F1C" },
   };
-  const DS = { cssFill:"#1a1a2e", stroke:"#555577", strokeOp:1, text:"#aaa", badge:"#555577" };
+  const DEFAULT_COLOR = { fill:"#22223300", stroke:"#555577", text:"#aaa", badge:"#555577" };
 
-  const parseMC = (txt = "") => {
+  const parseMasalaColor = (txt = "") => {
     const m = txt.match(/^([مخدت])\s*[—–-]\s*/);
     return m ? { colorKey:m[1], text:txt.slice(m[0].length).trim() } : { colorKey:null, text:txt.trim() };
   };
 
   const getDisp = (idx, parsedText) => {
     if (displayOverrides[idx]) return displayOverrides[idx];
-    const words = parsedText.split(" ");
-    return { line1: words.slice(0,2).join(" "), line2: words.slice(2,4).join(" ") };
+    const words = parsedText.split(" ").slice(0, 4);
+    return { line1: words.slice(0,2).join(" "), line2: words.slice(2).join(" ") };
   };
 
   const masailData = masailList.map((m, i) => {
-    const p  = parseMC(m);
-    const st = MS[p.colorKey] || DS;
-    return { ...p, st, disp: getDisp(i, p.text), idx: i };
+    const p   = parseMasalaColor(m);
+    const col = COLOR_MAP[p.colorKey] || DEFAULT_COLOR;
+    return { ...p, col, disp: getDisp(i, p.text), idx: i };
   });
 
-  // odd 1-based (0,2,4…) → left;  even 1-based (1,3,5…) → right
-  const leftData  = masailData.filter((_,i) => i%2===0);
-  const rightData = masailData.filter((_,i) => i%2===1);
+  // ── Split: even indices → top row, odd indices → bottom row ──
+  const topMasail    = masailData.filter((_,i) => i%2===0);
+  const bottomMasail = masailData.filter((_,i) => i%2===1);
 
-  // ── Layout (vertical: topics → center → masail columns → tags) ──
-  const svgW = Math.max(width, 900);
-  const cx   = Math.round(svgW / 2);
-  const nH   = 64;
-  const cW   = 140, cH = 68;
-  const colOffset = 220;   // x distance from cx to masail column center
-  const rowGap    = 110;   // vertical gap between masail rows
-  const topPad    = 20;
-  const tPillH    = 22, tPillGap = 8;
+  // ── Layout: landscape ──
+  const svgW  = Math.max(width, 900);
+  const svgH  = Math.max(500, Math.ceil(Math.max(topMasail.length, bottomMasail.length)) * 130 + 300);
+  const cx    = Math.round(svgW / 2);
+  const cy    = Math.round(svgH / 2);
+  const cW    = 148, cH = 72;    // center node
+  const nodeH = 56;
+  const nodeGap = 20;            // horizontal gap between masail nodes
+  const topY    = cy - 160;      // center-y of top-row masail
+  const bottomY = cy + 110;      // center-y of bottom-row masail
 
-  // Pre-compute topic pill rows so we can size cy correctly
-  const topicPillWidthsPre = topicList.map(t => Math.max(120, t.length * 13 + 32));
-  const tRowsPre = [];
-  { let tRow = [], tRowW = 0;
-    topicList.forEach((t, i) => {
-      const pw = topicPillWidthsPre[i];
-      if (tRowW > 0 && tRowW + tPillGap + pw > svgW - 80) { tRowsPre.push(tRow); tRow = []; tRowW = 0; }
-      tRow.push(i); tRowW += (tRowW > 0 ? tPillGap : 0) + pw;
-    });
-    if (tRow.length) tRowsPre.push(tRow); }
-  const topicsAreaH = tRowsPre.length > 0 ? tRowsPre.length * (tPillH + 4) + 34 : 0;
+  // ── Compute node widths ──
+  const getNodeW = (item) => {
+    const longest = Math.max(item.disp.line1.length, (item.disp.line2||"").length);
+    return Math.max(158, longest * 14 + 60);
+  };
 
-  // cy = vertical center of center node
-  const cy = topPad + topicsAreaH + (topicsAreaH > 0 ? 30 : 20);
-
-  const maxSideLen   = Math.max(leftData.length, rightData.length, 1);
-  const firstMasalaY = cy + 120;
-  const lastMasalaY  = firstMasalaY + (maxSideLen - 1) * rowGap;
-  const tagsBaseY    = lastMasalaY + nH / 2 + 60;
-  const legendH      = 28;
-  const svgH = tagsBaseY + (tagList.length > 0 ? 70 : 10) + legendH + topPad;
-
-  // ── Build masail paths + nodes ──
+  // ── Build paths + nodes ──
   const pathEls = [];
   const nodeEls = [];
 
-  const drawSide = (list, xCol) => {
-    // Connector origin: bottom-center of center node
-    const connFromX = cx;
-    const connFromY = cy + cH / 2;
+  const drawRow = (list, rowY, fromEdgeY) => {
+    // Spread nodes horizontally, centered on cx
+    const totalW = list.reduce((s,it) => s + getNodeW(it), 0) + (list.length-1) * nodeGap;
+    let curX = cx - totalW / 2;
 
-    list.forEach((item, si) => {
-      const ny     = firstMasalaY + si * rowGap;   // center y of this masail node
-      const isHov  = hoverIdx === item.idx;
+    list.forEach((item) => {
+      const nW     = getNodeW(item);
+      const nodeX  = curX;
+      const nodeY  = rowY - nodeH / 2;
+      const nodeCX = nodeX + nW / 2;
+      curX += nW + nodeGap;
 
-      // Dynamic width per text length
-      const longest = Math.max(item.disp.line1.length, (item.disp.line2 || "").length);
-      const nW = Math.max(160, longest * 14 + 60);
-      const nodeX  = xCol - nW / 2;
-      const nodeY  = ny - nH / 2;   // top of node
-
-      // Connector: cubic bezier from center-node bottom to top-center of masail node
-      const connToX = xCol;
-      const connToY = nodeY;
-      const cpY = (connFromY + connToY) / 2;
+      const isHov   = hoverIdx === item.idx;
+      const isTop   = rowY < cy;
+      // Connector: from center-top/bottom edge (at cx) → to masail node far edge
+      const connToY = isTop ? nodeY + nodeH : nodeY;   // bottom edge if top, top edge if bottom
+      const cpMidY  = (fromEdgeY + connToY) / 2;
 
       pathEls.push(
         <path key={`p${item.idx}`}
-          d={`M${connFromX},${connFromY} C${connFromX},${cpY} ${connToX},${cpY} ${connToX},${connToY}`}
-          fill="none" stroke={item.st.stroke} strokeWidth={1.6} strokeOpacity={0.6}/>
+          d={`M${cx},${fromEdgeY} C${cx},${cpMidY} ${nodeCX},${cpMidY} ${nodeCX},${connToY}`}
+          fill="none" stroke={item.col.stroke} strokeWidth={1.5} strokeOpacity={0.6}/>
       );
 
-      // Badge top-left, text centered in node (Fix 6: dominantBaseline="central")
-      const badgeX = nodeX + 6;
-      const badgeY = nodeY + 5;
-      const textX  = nodeX + nW / 2 + (item.colorKey ? 10 : 0);
+      const badgeX = nodeX + 5;
+      const badgeY = nodeY + (nodeH - 20) / 2;
+      const textX  = nodeX + nW/2 + (item.colorKey ? 10 : 0);
       const lineH  = 16;
 
       nodeEls.push(
         <g key={`n${item.idx}`}
           onMouseEnter={() => setHoverIdx(item.idx)}
           onMouseLeave={() => setHoverIdx(null)}>
-          {/* Node box */}
-          <rect x={nodeX} y={nodeY} width={nW} height={nH} rx={11}
-            style={{ fill: item.st.cssFill }}
-            stroke={item.st.stroke} strokeOpacity={isHov ? 1 : item.st.strokeOp}
+          <rect x={nodeX} y={nodeY} width={nW} height={nodeH} rx={10}
+            style={{ fill: item.col.fill }}
+            stroke={item.col.stroke} strokeOpacity={isHov ? 1 : 0.7}
             strokeWidth={isHov ? 2 : 1}/>
-          {/* Color badge */}
           {item.colorKey && <>
             <rect x={badgeX} y={badgeY} width={20} height={20} rx={5}
-              fill={item.st.badge} opacity={0.9}/>
+              fill={item.col.badge} opacity={0.9}/>
             <text x={badgeX+10} y={badgeY+10} textAnchor="middle" dominantBaseline="central"
               fill="#111" fontSize={11} fontWeight="700" fontFamily="Cairo,serif">{item.colorKey}</text>
           </>}
-          {/* Display text — vertically centered (Fix 6) */}
           <clipPath id={`clip${item.idx}`}>
-            <rect x={nodeX+2} y={nodeY+2} width={nW-4} height={nH-4}/>
+            <rect x={nodeX+2} y={nodeY+2} width={nW-4} height={nodeH-4}/>
           </clipPath>
           {item.disp.line2 ? <>
-            <text x={textX} y={ny - lineH/2} textAnchor="middle" dominantBaseline="central"
+            <text x={textX} y={rowY - lineH/2} textAnchor="middle" dominantBaseline="central"
               clipPath={`url(#clip${item.idx})`}
-              fill={item.st.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
-            <text x={textX} y={ny + lineH/2} textAnchor="middle" dominantBaseline="central"
+              fill={item.col.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
+            <text x={textX} y={rowY + lineH/2} textAnchor="middle" dominantBaseline="central"
               clipPath={`url(#clip${item.idx})`}
-              fill={item.st.text} fontSize={11} fontFamily="Cairo,serif">{item.disp.line2}</text>
+              fill={item.col.text} fontSize={11} fontFamily="Cairo,serif">{item.disp.line2}</text>
           </> : (
-            <text x={textX} y={ny} textAnchor="middle" dominantBaseline="central"
+            <text x={textX} y={rowY} textAnchor="middle" dominantBaseline="central"
               clipPath={`url(#clip${item.idx})`}
-              fill={item.st.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
+              fill={item.col.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
           )}
-          {/* Pencil icon on hover */}
           {isHov && (
             <g style={{ cursor:"pointer" }}
               onClick={e => { e.stopPropagation(); setEditDraft(item.disp); setEditingIdx(item.idx); }}>
-              <circle cx={nodeX + nW - 13} cy={nodeY + nH - 12} r={10}
-                fill="#1a1a2e" stroke={item.st.stroke} strokeWidth={1}/>
-              <text x={nodeX + nW - 13} y={nodeY + nH - 12} textAnchor="middle" dominantBaseline="central"
-                fill={item.st.stroke} fontSize={10} fontFamily="Arial">✎</text>
+              <circle cx={nodeX+nW-12} cy={nodeY+nodeH-12} r={9}
+                fill="#1a1a2e" stroke={item.col.stroke} strokeWidth={1}/>
+              <text x={nodeX+nW-12} y={nodeY+nodeH-12} textAnchor="middle" dominantBaseline="central"
+                fill={item.col.stroke} fontSize={10} fontFamily="Arial">✎</text>
             </g>
           )}
         </g>
@@ -1040,81 +1016,74 @@ function AyahMindMap({ note, width }) {
     });
   };
 
-  drawSide(leftData,  cx - colOffset);
-  drawSide(rightData, cx + colOffset);
+  drawRow(topMasail,    topY,    cy - cH/2);   // top row: connectors from center TOP edge
+  drawRow(bottomMasail, bottomY, cy + cH/2);   // bottom row: connectors from center BOTTOM edge
 
-  // ── Topics (above center) — uses pre-computed tRowsPre / topicPillWidthsPre ──
-  const tLabelY     = topPad + 14;
-  const tPillsStartY = tLabelY + 16;
-  const tBottomY    = tPillsStartY + (tRowsPre.length > 0 ? tRowsPre.length * (tPillH + 4) + 4 : 0);
+  // ── Topics: left column, dashed blue line ──
+  const tColX     = 20;
+  const tPillW    = 120, tPillH = 24, tPillGap = 8;
+  const tStartY   = cy - (topicList.length * (tPillH + tPillGap) - tPillGap) / 2;
+  const tLabelX   = tColX + tPillW / 2;
 
   const topicsEl = topicList.length > 0 && (
     <g key="topics">
-      <line x1={cx} y1={tBottomY} x2={cx} y2={cy - cH/2}
-        stroke="#4A90D9" strokeWidth={1.4} strokeDasharray="5,4" strokeOpacity={0.5}/>
-      <text x={cx} y={tLabelY} textAnchor="middle"
-        fill="#4A90D9" fontSize={11} fontWeight="600" fontFamily="Cairo,serif">▲ الموضوعات</text>
-      {tRowsPre.map((rowIdxs, ri) => {
-        const rowTotalW = rowIdxs.reduce((s, i) => s + topicPillWidthsPre[i], 0) + (rowIdxs.length - 1) * tPillGap;
-        let rx = cx - rowTotalW / 2;
-        const ry = tPillsStartY + ri * (tPillH + 4);
-        return rowIdxs.map(i => {
-          const t = topicList[i];
-          const pw = topicPillWidthsPre[i];
-          const cat = TOPICS.find(c => c.items.includes(t));
-          const col = cat?.color || "#4A90D9";
-          const pillX = rx; rx += pw + tPillGap;
-          return (
-            <g key={t}>
-              <rect x={pillX} y={ry} width={pw} height={tPillH} rx={tPillH/2}
-                fill={col} fillOpacity={0.15} stroke={col} strokeOpacity={0.6} strokeWidth={1}/>
-              <text x={pillX + pw/2} y={ry + tPillH/2} textAnchor="middle" dominantBaseline="central"
-                fill={col} fontSize={10.5} fontFamily="Cairo,serif">{t}</text>
-            </g>
-          );
-        });
-      })}
-    </g>
-  );
-
-  // ── Tags (below masail) — tagsBaseY already computed in layout ──
-  const tagsLabelY = tagsBaseY + 14;
-  const tagPillY   = tagsLabelY + 16;
-
-  const tagsEl = tagList.length > 0 && (
-    <g key="tags">
-      <line x1={cx} y1={cy + cH/2} x2={cx} y2={tagsBaseY}
-        stroke="#8899bb" strokeWidth={1.4} strokeDasharray="5,4" strokeOpacity={0.5}/>
-      <text x={cx} y={tagsLabelY} textAnchor="middle"
-        fill="#8899bb" fontSize={11} fontWeight="600" fontFamily="Cairo,serif">▼ الوسوم</text>
-      {tagList.slice(0, 6).map((t, i) => {
-        const tw = 72, tgap = 6;
-        const total = Math.min(tagList.length, 6);
-        const px = cx - (total * (tw + tgap) - tgap) / 2 + i * (tw + tgap);
+      <line x1={tColX + tPillW + 8} y1={cy} x2={cx - cW/2} y2={cy}
+        stroke="#4A90D9" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.5}/>
+      <text x={tLabelX} y={tStartY - 14} textAnchor="middle" dominantBaseline="central"
+        fill="#4A90D9" fontSize={10} fontWeight="600" fontFamily="Cairo,serif">◄ الموضوعات</text>
+      {topicList.map((t, i) => {
+        const py = tStartY + i * (tPillH + tPillGap);
+        const cat = TOPICS.find(c => c.items.includes(t));
+        const col = cat?.color || "#4A90D9";
         return (
           <g key={t}>
-            <rect x={px} y={tagPillY} width={tw} height={20} rx={10}
-              fill="#8899bb22" stroke="#8899bb44" strokeWidth={1}/>
-            <text x={px + tw/2} y={tagPillY + 10} textAnchor="middle" dominantBaseline="central"
-              fill="#8899bb" fontSize={9.5} fontFamily="Cairo,serif">#{t.slice(0, 7)}</text>
+            <rect x={tColX} y={py} width={tPillW} height={tPillH} rx={tPillH/2}
+              fill={col} fillOpacity={0.13} stroke={col} strokeOpacity={0.6} strokeWidth={1}/>
+            <text x={tColX + tPillW/2} y={py + tPillH/2} textAnchor="middle" dominantBaseline="central"
+              fill={col} fontSize={10} fontFamily="Cairo,serif">{t.slice(0,10)}</text>
           </g>
         );
       })}
     </g>
   );
 
-  // ── Legend ──
-  const legendY = svgH - 9;
-  const LEGEND_PARTS = [
-    {txt:"م — أحكام", col:"#FFF275"}, {txt:"|", col:"#444"},
-    {txt:"د — أدلة",  col:"#A3E635"}, {txt:"|", col:"#444"},
-    {txt:"خ — خلاصة", col:"#D6B4FC"}, {txt:"|", col:"#444"},
-    {txt:"ت — تربوية",col:"#FF9F1C"},
+  // ── Tags: right column, dashed pink line ──
+  const tagColX  = svgW - 150;
+  const tagPillW = 120, tagPillH = 24, tagPillGap = 8;
+  const tagStartY = cy - (tagList.length * (tagPillH + tagPillGap) - tagPillGap) / 2;
+
+  const tagsEl = tagList.length > 0 && (
+    <g key="tags">
+      <line x1={cx + cW/2} y1={cy} x2={tagColX - 8} y2={cy}
+        stroke="#E91E8C" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.5}/>
+      <text x={tagColX + tagPillW/2} y={tagStartY - 14} textAnchor="middle" dominantBaseline="central"
+        fill="#E91E8C" fontSize={10} fontWeight="600" fontFamily="Cairo,serif">الوسوم ►</text>
+      {tagList.slice(0, 8).map((t, i) => {
+        const py = tagStartY + i * (tagPillH + tagPillGap);
+        return (
+          <g key={t}>
+            <rect x={tagColX} y={py} width={tagPillW} height={tagPillH} rx={tagPillH/2}
+              fill="#E91E8C" fillOpacity={0.1} stroke="#E91E8C" strokeOpacity={0.5} strokeWidth={1}/>
+            <text x={tagColX + tagPillW/2} y={py + tagPillH/2} textAnchor="middle" dominantBaseline="central"
+              fill="#a0006a" fontSize={10} fontFamily="Cairo,serif">#{t.slice(0,9)}</text>
+          </g>
+        );
+      })}
+    </g>
+  );
+
+  // ── Legend (light gray bg, evenly spaced color swatches) ──
+  const LEGEND_ITEMS = [
+    { label:"م — أحكام",   color:"#FFF275", textColor:"#8a8600" },
+    { label:"د — أدلة",    color:"#A3E635", textColor:"#3d6600" },
+    { label:"خ — خلاصة",  color:"#D6B4FC", textColor:"#5a1f8a" },
+    { label:"ت — تربوية", color:"#FF9F1C", textColor:"#7a4000" },
+    { label:"وسوم",        color:"#E91E8C", textColor:"#a0006a" },
   ];
-  // measure legend
-  const partW = 80, partGap = 4;
-  const legendTotalW = LEGEND_PARTS.length * (partW + partGap) - partGap;
-  const legendStartX = cx - legendTotalW / 2;
+  const legendX  = 40;
+  const legendY  = svgH - 30;
+  const legendW  = svgW - 80;
+  const itemW    = legendW / LEGEND_ITEMS.length;
 
   const saveEdit = () => { setDisplayOverrides(p => ({...p, [editingIdx]: editDraft})); setEditingIdx(null); };
 
@@ -1125,54 +1094,52 @@ function AyahMindMap({ note, width }) {
         style={{ display:"block", overflow:"visible", fontFamily:"Cairo,serif" }}>
         <defs>
           <radialGradient id={`ag-${note.surah}-${ayah}`} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#C9A84C" stopOpacity="0.18"/>
+            <stop offset="0%" stopColor="#C9A84C" stopOpacity="0.15"/>
             <stop offset="100%" stopColor="#C9A84C" stopOpacity="0"/>
           </radialGradient>
         </defs>
 
         {/* Glow */}
-        <ellipse cx={cx} cy={cy} rx={90} ry={55} fill={`url(#ag-${note.surah}-${ayah})`}/>
+        <ellipse cx={cx} cy={cy} rx={95} ry={60} fill={`url(#ag-${note.surah}-${ayah})`}/>
 
-        {/* Paths behind nodes */}
+        {/* Connector paths */}
         {pathEls}
 
-        {/* Topics */}
+        {/* Topics left */}
         {topicsEl}
 
-        {/* Tags */}
+        {/* Tags right */}
         {tagsEl}
 
-        {/* Center node */}
+        {/* Center node — light gray (Fix 5) */}
         <g>
-          <rect x={cx-cW/2} y={cy-cH/2} width={cW} height={cH} rx={13}
-            fill="#2a2a3a" stroke="#C9A84C" strokeWidth={2}/>
-          <text x={cx} y={cy-10} textAnchor="middle"
+          <rect x={cx-cW/2} y={cy-cH/2} width={cW} height={cH} rx={14}
+            fill="#e8e8ee" stroke="#C9A84C" strokeWidth={2}/>
+          <text x={cx} y={cy-12} textAnchor="middle" dominantBaseline="central"
             fill="#C9A84C" fontSize={14} fontWeight="700" fontFamily="Amiri,serif">{note.surah}</text>
-          <text x={cx} y={cy+11} textAnchor="middle"
-            fill="#C9A84C99" fontSize={12} fontFamily="Cairo,serif">آية {ayah}</text>
+          <text x={cx} y={cy+6} textAnchor="middle" dominantBaseline="central"
+            fill="#555" fontSize={12} fontFamily="Cairo,serif">آية {ayah}</text>
+          <text x={cx} y={cy+22} textAnchor="middle" dominantBaseline="central"
+            fill="#888" fontSize={10} fontFamily="Cairo,serif">{masailList.length} مسألة</text>
         </g>
 
         {/* Masail nodes */}
         {nodeEls}
 
         {/* Legend background */}
-        <rect
-          x={legendStartX - 12}
-          y={legendY - 14}
-          width={legendTotalW + 24}
-          height={22}
-          rx={8}
-          fill="#2a2a3a"
-          stroke="#3a3a5a"
-          strokeWidth={1}
-        />
-        {/* Legend text */}
-        {LEGEND_PARTS.map((lp, i) => (
-          <text key={i}
-            x={legendStartX + i*(partW+partGap) + partW/2}
-            y={legendY} textAnchor="middle"
-            fill={lp.col} fontSize={9.5} fontFamily="Cairo,serif">{lp.txt}</text>
-        ))}
+        <rect x={legendX} y={legendY-12} width={legendW} height={26}
+          rx={8} fill="#e8e8ee" stroke="#cccccc" strokeWidth={0.5}/>
+        {/* Legend items */}
+        {LEGEND_ITEMS.map((item, i) => {
+          const slotCX = legendX + (i + 0.5) * itemW;
+          return (
+            <g key={i}>
+              <rect x={slotCX-30} y={legendY-5} width={12} height={10} rx={2} fill={item.color}/>
+              <text x={slotCX-14} y={legendY+1} textAnchor="start" dominantBaseline="central"
+                fontSize={10} fill={item.textColor} fontFamily="Cairo,serif">{item.label}</text>
+            </g>
+          );
+        })}
       </svg>
 
       {/* Edit overlay */}
