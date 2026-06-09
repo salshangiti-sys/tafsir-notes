@@ -763,9 +763,11 @@ function MapNode({ x,y,text,color,bg,fontSize=12,maxW=120,bold=false,onClick,hig
       <rect width={w} height={h} rx={h/2} fill={bg||"#1a1a2e"}
         stroke={color} strokeWidth={highlight?2:1} strokeOpacity={highlight?1:0.6} />
       {lines.map((l,i)=>(
-        <text key={i} x={w/2} y={12+lh*(i+0.75)} textAnchor="middle"
+        <text key={i} x={w/2}
+          y={h/2 + (i - (lines.length-1)/2) * lh}
+          textAnchor="middle" dominantBaseline="central"
           fill={color} fontSize={fontSize} fontWeight={bold?"700":"400"}
-          fontFamily="Cairo,serif" dominantBaseline="middle">{l}</text>
+          fontFamily="Cairo,serif">{l}</text>
       ))}
     </g>
   );
@@ -791,19 +793,15 @@ function SurahMindMap({ surahName, notes, intro, width }) {
   const cx = width/2, cy = 200;
 
   // بناء الفروع من البيانات
-  const allTopics  = [...new Set(surahNotes.flatMap(n=>n.topics||[]))].slice(0,6);
-  const allTags    = [...new Set(surahNotes.flatMap(n=>n.tags||[]))].slice(0,6);
-  const masailSamples = surahNotes.flatMap(n=>(n.masail||[]).filter(m=>m?.trim()).slice(0,1)).slice(0,5);
-  const reflections   = surahNotes.filter(n=>n.reflection?.trim()).map(n=>n.reflection.slice(0,30)+"…").slice(0,4);
+  const allTopics = [...new Set(surahNotes.flatMap(n=>n.topics||[]))].slice(0,6);
+  const allTags   = [...new Set(surahNotes.flatMap(n=>n.tags||[]))].slice(0,6);
 
   const branches = [
-    { key:"topics",    label:"الموضوعات",     color:MM_COLORS.topics,    children:allTopics,       angle:-130 },
-    { key:"masail",    label:"المسائل",        color:MM_COLORS.masail,    children:masailSamples,   angle:-50  },
-    { key:"tags",      label:"الوسوم",          color:MM_COLORS.tags,      children:allTags,         angle:50   },
-    { key:"reflection",label:"الفوائد",         color:MM_COLORS.reflection,children:reflections,     angle:130  },
+    { key:"topics", label:"الموضوعات", color:MM_COLORS.topics, children:allTopics },
+    { key:"tags",   label:"الوسوم",    color:MM_COLORS.tags,   children:allTags   },
   ].filter(b=>b.children.length>0);
 
-  const svgH = Math.max(420, branches.reduce((acc,b)=>Math.max(acc,b.children.length*52+120),0));
+  const svgH = Math.max(500, branches.reduce((acc,b) => Math.max(acc, b.children.length * 90 + 200), 0));
 
   // توزيع الفروع على الجانبين
   const left  = branches.filter((_,i)=>i%2===0);
@@ -927,103 +925,113 @@ function AyahMindMap({ note, width }) {
   const leftData  = masailData.filter((_,i) => i%2===0);
   const rightData = masailData.filter((_,i) => i%2===1);
 
-  // ── Layout constants ──
-  // Use a virtual width of at least 900 for the layout, then scale via viewBox
-  const svgW  = Math.max(width, 900);
-  const cx    = Math.round(svgW / 2);
-  const nH    = 64;   // masala node height (fixed)
-  const cW    = 140, cH = 68;  // center node
-  const armX  = 220;  // horiz distance: center-edge → node-center
-  const spacing = 100;  // vert spacing between nodes on same side
+  // ── Layout (vertical: topics → center → masail columns → tags) ──
+  const svgW = Math.max(width, 900);
+  const cx   = Math.round(svgW / 2);
+  const nH   = 64;
+  const cW   = 140, cH = 68;
+  const colOffset = 220;   // x distance from cx to masail column center
+  const rowGap    = 110;   // vertical gap between masail rows
+  const topPad    = 20;
+  const tPillH    = 22, tPillGap = 8;
 
-  const maxN     = Math.max(leftData.length, rightData.length, 1);
-  const sideSpan = (maxN - 1) * spacing;
-  const topicsH  = topicList.length > 0 ? 80 : 28;
-  const tagsH    = tagList.length   > 0 ? 70 : 22;
-  const topPad   = 20;
-  const legendH  = 28;
+  // Pre-compute topic pill rows so we can size cy correctly
+  const topicPillWidthsPre = topicList.map(t => Math.max(120, t.length * 13 + 32));
+  const tRowsPre = [];
+  { let tRow = [], tRowW = 0;
+    topicList.forEach((t, i) => {
+      const pw = topicPillWidthsPre[i];
+      if (tRowW > 0 && tRowW + tPillGap + pw > svgW - 80) { tRowsPre.push(tRow); tRow = []; tRowW = 0; }
+      tRow.push(i); tRowW += (tRowW > 0 ? tPillGap : 0) + pw;
+    });
+    if (tRow.length) tRowsPre.push(tRow); }
+  const topicsAreaH = tRowsPre.length > 0 ? tRowsPre.length * (tPillH + 4) + 34 : 0;
 
-  const cy   = topPad + topicsH + Math.max(sideSpan / 2, cH / 2) + 14;
-  const svgH = cy + Math.max(sideSpan / 2, cH / 2) + tagsH + legendH + topPad;
+  // cy = vertical center of center node
+  const cy = topPad + topicsAreaH + (topicsAreaH > 0 ? 30 : 20);
+
+  const maxSideLen   = Math.max(leftData.length, rightData.length, 1);
+  const firstMasalaY = cy + 120;
+  const lastMasalaY  = firstMasalaY + (maxSideLen - 1) * rowGap;
+  const tagsBaseY    = lastMasalaY + nH / 2 + 60;
+  const legendH      = 28;
+  const svgH = tagsBaseY + (tagList.length > 0 ? 70 : 10) + legendH + topPad;
 
   // ── Build masail paths + nodes ──
   const pathEls = [];
   const nodeEls = [];
 
-  const drawSide = (list, side) => {
-    const isLeft = side === "left";
-
-    // Fix 1: distribute evenly around cy
-    const totalH = (list.length - 1) * spacing;
-    const startY = cy - totalH / 2;
-
-    // Center node edge where connector starts
-    const lineFromX = isLeft ? cx - cW / 2 : cx + cW / 2;
+  const drawSide = (list, xCol) => {
+    // Connector origin: bottom-center of center node
+    const connFromX = cx;
+    const connFromY = cy + cH / 2;
 
     list.forEach((item, si) => {
-      const ny   = startY + si * spacing;
-      const isHov = hoverIdx === item.idx;
+      const ny     = firstMasalaY + si * rowGap;   // center y of this masail node
+      const isHov  = hoverIdx === item.idx;
 
-      // Fix 2: node width based on longest display line
+      // Dynamic width per text length
       const longest = Math.max(item.disp.line1.length, (item.disp.line2 || "").length);
-      const nW = Math.max(160, longest * 14 + 60);  // 60 = badge + padding
+      const nW = Math.max(160, longest * 14 + 60);
+      const nodeX  = xCol - nW / 2;
+      const nodeY  = ny - nH / 2;   // top of node
 
-      // Node x: place node center at cx ± armX from center-node edge
-      const nodeCX  = isLeft ? cx - cW/2 - armX : cx + cW/2 + armX;
-      const nodeX   = nodeCX - nW / 2;    // left edge
-      const nodeRX  = nodeCX + nW / 2;    // right edge
-
-      // Fix 1: connector goes center-node-EDGE → masail-node-EDGE (not center)
-      const lineToX  = isLeft ? nodeRX : nodeX;  // near edge of masail node
-      const cpX      = (lineFromX + lineToX) / 2;
+      // Connector: cubic bezier from center-node bottom to top-center of masail node
+      const connToX = xCol;
+      const connToY = nodeY;
+      const cpY = (connFromY + connToY) / 2;
 
       pathEls.push(
         <path key={`p${item.idx}`}
-          d={`M${lineFromX},${cy} C${cpX},${cy} ${cpX},${ny} ${lineToX},${ny}`}
+          d={`M${connFromX},${connFromY} C${connFromX},${cpY} ${connToX},${cpY} ${connToX},${connToY}`}
           fill="none" stroke={item.st.stroke} strokeWidth={1.6} strokeOpacity={0.6}/>
       );
 
-      // Badge: top-left corner of node
+      // Badge top-left, text centered in node (Fix 6: dominantBaseline="central")
       const badgeX = nodeX + 6;
-      const badgeY = ny - nH/2 + 5;
-      // Text: centered in node, shifted right of badge
-      const textX  = nodeX + nW/2 + (item.colorKey ? 10 : 0);
+      const badgeY = nodeY + 5;
+      const textX  = nodeX + nW / 2 + (item.colorKey ? 10 : 0);
+      const lineH  = 16;
 
       nodeEls.push(
         <g key={`n${item.idx}`}
           onMouseEnter={() => setHoverIdx(item.idx)}
           onMouseLeave={() => setHoverIdx(null)}>
-          {/* Node box — style.fill uses CSS Color 4 so 8-digit hex alpha works */}
-          <rect x={nodeX} y={ny-nH/2} width={nW} height={nH} rx={11}
+          {/* Node box */}
+          <rect x={nodeX} y={nodeY} width={nW} height={nH} rx={11}
             style={{ fill: item.st.cssFill }}
             stroke={item.st.stroke} strokeOpacity={isHov ? 1 : item.st.strokeOp}
             strokeWidth={isHov ? 2 : 1}/>
-          {/* Color badge (top-left) */}
+          {/* Color badge */}
           {item.colorKey && <>
             <rect x={badgeX} y={badgeY} width={20} height={20} rx={5}
               fill={item.st.badge} opacity={0.9}/>
-            <text x={badgeX+10} y={badgeY+14} textAnchor="middle"
+            <text x={badgeX+10} y={badgeY+10} textAnchor="middle" dominantBaseline="central"
               fill="#111" fontSize={11} fontWeight="700" fontFamily="Cairo,serif">{item.colorKey}</text>
           </>}
-          {/* Display text — clipped inside node */}
+          {/* Display text — vertically centered (Fix 6) */}
           <clipPath id={`clip${item.idx}`}>
-            <rect x={nodeX+2} y={ny-nH/2+2} width={nW-4} height={nH-4}/>
+            <rect x={nodeX+2} y={nodeY+2} width={nW-4} height={nH-4}/>
           </clipPath>
-          <text x={textX} y={ny - (item.disp.line2 ? 9 : 0)} textAnchor="middle"
-            clipPath={`url(#clip${item.idx})`}
-            fill={item.st.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
-          {item.disp.line2 && (
-            <text x={textX} y={ny + 11} textAnchor="middle"
+          {item.disp.line2 ? <>
+            <text x={textX} y={ny - lineH/2} textAnchor="middle" dominantBaseline="central"
+              clipPath={`url(#clip${item.idx})`}
+              fill={item.st.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
+            <text x={textX} y={ny + lineH/2} textAnchor="middle" dominantBaseline="central"
               clipPath={`url(#clip${item.idx})`}
               fill={item.st.text} fontSize={11} fontFamily="Cairo,serif">{item.disp.line2}</text>
+          </> : (
+            <text x={textX} y={ny} textAnchor="middle" dominantBaseline="central"
+              clipPath={`url(#clip${item.idx})`}
+              fill={item.st.text} fontSize={12} fontWeight="600" fontFamily="Cairo,serif">{item.disp.line1}</text>
           )}
           {/* Pencil icon on hover */}
           {isHov && (
             <g style={{ cursor:"pointer" }}
               onClick={e => { e.stopPropagation(); setEditDraft(item.disp); setEditingIdx(item.idx); }}>
-              <circle cx={nodeX + nW - 13} cy={ny + nH/2 - 12} r={10}
+              <circle cx={nodeX + nW - 13} cy={nodeY + nH - 12} r={10}
                 fill="#1a1a2e" stroke={item.st.stroke} strokeWidth={1}/>
-              <text x={nodeX + nW - 13} y={ny + nH/2 - 8} textAnchor="middle"
+              <text x={nodeX + nW - 13} y={nodeY + nH - 12} textAnchor="middle" dominantBaseline="central"
                 fill={item.st.stroke} fontSize={10} fontFamily="Arial">✎</text>
             </g>
           )}
@@ -1032,29 +1040,13 @@ function AyahMindMap({ note, width }) {
     });
   };
 
-  drawSide(leftData,  "left");
-  drawSide(rightData, "right");
+  drawSide(leftData,  cx - colOffset);
+  drawSide(rightData, cx + colOffset);
 
-  // ── Topics (top, dashed blue) — dynamic pill widths, full text, multi-row ──
-  const tLabelY  = topPad + 14;
-  const tPillH   = 22;
-  const tPillGap = 8;
-  // Each pill is wide enough for its full text
-  const topicPillWidths = topicList.map(t => Math.max(120, t.length * 13 + 32));
-  // Layout in rows fitting svgW - 80
-  const tRows = [];
-  let tRow = [], tRowW = 0;
-  topicList.forEach((t, i) => {
-    const pw = topicPillWidths[i];
-    if (tRowW > 0 && tRowW + tPillGap + pw > svgW - 80) {
-      tRows.push(tRow); tRow = []; tRowW = 0;
-    }
-    tRow.push(i); tRowW += (tRowW > 0 ? tPillGap : 0) + pw;
-  });
-  if (tRow.length) tRows.push(tRow);
-  const tTotalH = tRows.length * (tPillH + 4) + 4;
+  // ── Topics (above center) — uses pre-computed tRowsPre / topicPillWidthsPre ──
+  const tLabelY     = topPad + 14;
   const tPillsStartY = tLabelY + 16;
-  const tBottomY = tPillsStartY + tTotalH;
+  const tBottomY    = tPillsStartY + (tRowsPre.length > 0 ? tRowsPre.length * (tPillH + 4) + 4 : 0);
 
   const topicsEl = topicList.length > 0 && (
     <g key="topics">
@@ -1062,13 +1054,13 @@ function AyahMindMap({ note, width }) {
         stroke="#4A90D9" strokeWidth={1.4} strokeDasharray="5,4" strokeOpacity={0.5}/>
       <text x={cx} y={tLabelY} textAnchor="middle"
         fill="#4A90D9" fontSize={11} fontWeight="600" fontFamily="Cairo,serif">▲ الموضوعات</text>
-      {tRows.map((rowIdxs, ri) => {
-        const rowTotalW = rowIdxs.reduce((s, i) => s + topicPillWidths[i], 0) + (rowIdxs.length - 1) * tPillGap;
+      {tRowsPre.map((rowIdxs, ri) => {
+        const rowTotalW = rowIdxs.reduce((s, i) => s + topicPillWidthsPre[i], 0) + (rowIdxs.length - 1) * tPillGap;
         let rx = cx - rowTotalW / 2;
         const ry = tPillsStartY + ri * (tPillH + 4);
         return rowIdxs.map(i => {
           const t = topicList[i];
-          const pw = topicPillWidths[i];
+          const pw = topicPillWidthsPre[i];
           const cat = TOPICS.find(c => c.items.includes(t));
           const col = cat?.color || "#4A90D9";
           const pillX = rx; rx += pw + tPillGap;
@@ -1076,7 +1068,7 @@ function AyahMindMap({ note, width }) {
             <g key={t}>
               <rect x={pillX} y={ry} width={pw} height={tPillH} rx={tPillH/2}
                 fill={col} fillOpacity={0.15} stroke={col} strokeOpacity={0.6} strokeWidth={1}/>
-              <text x={pillX + pw/2} y={ry + 14} textAnchor="middle"
+              <text x={pillX + pw/2} y={ry + tPillH/2} textAnchor="middle" dominantBaseline="central"
                 fill={col} fontSize={10.5} fontFamily="Cairo,serif">{t}</text>
             </g>
           );
@@ -1085,8 +1077,7 @@ function AyahMindMap({ note, width }) {
     </g>
   );
 
-  // ── Tags (bottom, dashed grey) ──
-  const tagsBaseY = cy + Math.max(sideSpan / 2, cH / 2) + 18;
+  // ── Tags (below masail) — tagsBaseY already computed in layout ──
   const tagsLabelY = tagsBaseY + 14;
   const tagPillY   = tagsLabelY + 16;
 
@@ -1104,7 +1095,7 @@ function AyahMindMap({ note, width }) {
           <g key={t}>
             <rect x={px} y={tagPillY} width={tw} height={20} rx={10}
               fill="#8899bb22" stroke="#8899bb44" strokeWidth={1}/>
-            <text x={px + tw/2} y={tagPillY + 13} textAnchor="middle"
+            <text x={px + tw/2} y={tagPillY + 10} textAnchor="middle" dominantBaseline="central"
               fill="#8899bb" fontSize={9.5} fontFamily="Cairo,serif">#{t.slice(0, 7)}</text>
           </g>
         );
@@ -1115,11 +1106,10 @@ function AyahMindMap({ note, width }) {
   // ── Legend ──
   const legendY = svgH - 9;
   const LEGEND_PARTS = [
-    {txt:"م — أحكام", col:"#FFF275"}, {txt:"|", col:"#333"},
-    {txt:"د — أدلة",  col:"#A3E635"}, {txt:"|", col:"#333"},
-    {txt:"خ — خلاصة", col:"#D6B4FC"}, {txt:"|", col:"#333"},
-    {txt:"ت — تربوية",col:"#FF9F1C"}, {txt:"|", col:"#333"},
-    {txt:"✎ اضغط للتعديل", col:"#666"},
+    {txt:"م — أحكام", col:"#FFF275"}, {txt:"|", col:"#444"},
+    {txt:"د — أدلة",  col:"#A3E635"}, {txt:"|", col:"#444"},
+    {txt:"خ — خلاصة", col:"#D6B4FC"}, {txt:"|", col:"#444"},
+    {txt:"ت — تربوية",col:"#FF9F1C"},
   ];
   // measure legend
   const partW = 80, partGap = 4;
@@ -1172,8 +1162,8 @@ function AyahMindMap({ note, width }) {
           width={legendTotalW + 24}
           height={22}
           rx={8}
-          fill="#13132a"
-          stroke="#2a2a4a"
+          fill="#2a2a3a"
+          stroke="#3a3a5a"
           strokeWidth={1}
         />
         {/* Legend text */}
