@@ -862,7 +862,7 @@ function SurahMindMap({ surahName, notes, intro, width }) {
         <text x={cx} y={cy+6} textAnchor="middle" dominantBaseline="central"
           fill="#555" fontSize={11} fontFamily="Cairo,serif">{surahData?.revelation}</text>
         <text x={cx} y={cy+22} textAnchor="middle" dominantBaseline="central"
-          fill="#888" fontSize={10} fontFamily="Cairo,serif">{totalMasail} مسألة</text>
+          fill="#888" fontSize={10} fontFamily="Cairo,serif">عدد المسائل: {totalMasail}</text>
       </g>
 
       {/* Fix 2+3+5: Topic pills LEFT — always blue */}
