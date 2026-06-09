@@ -811,6 +811,7 @@ function SurahMindMap({ surahName, notes, intro, width }) {
   const tagsStartY   = cy - ((allTags.length - 1) * tagSpacing) / 2;
 
   const surahData = SURAHS.find(s=>s.name===surahName);
+  const totalMasail = surahNotes.reduce((acc, n) => acc + (n.masail?.filter(m => m?.trim()).length || 0), 0);
 
   // Fix 6: legend
   const LEGEND_ITEMS = [
@@ -861,7 +862,7 @@ function SurahMindMap({ surahName, notes, intro, width }) {
         <text x={cx} y={cy+6} textAnchor="middle" dominantBaseline="central"
           fill="#555" fontSize={11} fontFamily="Cairo,serif">{surahData?.revelation}</text>
         <text x={cx} y={cy+22} textAnchor="middle" dominantBaseline="central"
-          fill="#888" fontSize={10} fontFamily="Cairo,serif">{surahNotes.length} ملاحظة</text>
+          fill="#888" fontSize={10} fontFamily="Cairo,serif">{totalMasail} مسألة</text>
       </g>
 
       {/* Fix 2+3+5: Topic pills LEFT — always blue */}
@@ -1064,8 +1065,14 @@ function AyahMindMap({ note, width }) {
 
   const topicsEl = topicList.length > 0 && (
     <g key="topics">
-      <line x1={tColX} y1={cy} x2={cx - cW/2} y2={cy}
-        stroke="#4A90D9" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.5}/>
+      {/* Connectors: center LEFT edge → pill RIGHT edge */}
+      {topicList.map((t, i) => {
+        const tPillW = Math.max(140, t.length * 13 + 32);
+        const py = tStartY + i * (tPillH + tPillGap);
+        return <path key={`tc${i}`}
+          d={`M${cx - cW/2},${cy} C${cx - cW/2 - 60},${cy} ${tColX + tPillW + 60},${py + tPillH/2} ${tColX + tPillW},${py + tPillH/2}`}
+          fill="none" stroke="#4A90D9" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.5}/>;
+      })}
       <text x={tColX + 70} y={tStartY - 14} textAnchor="middle" dominantBaseline="central"
         fill="#4A90D9" fontSize={10} fontWeight="600" fontFamily="Cairo,serif">◄ الموضوعات</text>
       {topicList.map((t, i) => {
@@ -1090,8 +1097,13 @@ function AyahMindMap({ note, width }) {
 
   const tagsEl = tagList.length > 0 && (
     <g key="tags">
-      <line x1={cx + cW/2} y1={cy} x2={tagColX - 8} y2={cy}
-        stroke="#E91E8C" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.5}/>
+      {/* Connectors: center RIGHT edge → pill LEFT edge */}
+      {tagList.slice(0, 8).map((t, i) => {
+        const py = tagStartY + i * (tagPillH + tagPillGap);
+        return <path key={`gc${i}`}
+          d={`M${cx + cW/2},${cy} C${cx + cW/2 + 60},${cy} ${tagColX - 60},${py + tagPillH/2} ${tagColX},${py + tagPillH/2}`}
+          fill="none" stroke="#E91E8C" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.5}/>;
+      })}
       <text x={tagColX + tagPillW/2} y={tagStartY - 14} textAnchor="middle" dominantBaseline="central"
         fill="#E91E8C" fontSize={10} fontWeight="600" fontFamily="Cairo,serif">الوسوم ►</text>
       {tagList.slice(0, 8).map((t, i) => {
