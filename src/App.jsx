@@ -788,93 +788,130 @@ function wrapText(text="", maxW, fs) {
 
 // ── خريطة السورة ──
 function SurahMindMap({ surahName, notes, intro, width }) {
-  const [active, setActive] = useState(null);
   const surahNotes = notes.filter(n=>n.surah===surahName);
-  const cx = width/2, cy = 200;
 
-  // بناء الفروع من البيانات
-  const allTopics = [...new Set(surahNotes.flatMap(n=>n.topics||[]))].slice(0,6);
-  const allTags   = [...new Set(surahNotes.flatMap(n=>n.tags||[]))].slice(0,6);
+  // Fix 1: only topics + tags
+  const allTopics = [...new Set(surahNotes.flatMap(n=>n.topics||[]))].slice(0,8);
+  const allTags   = [...new Set(surahNotes.flatMap(n=>n.tags||[]))].slice(0,8);
 
-  const branches = [
-    { key:"topics", label:"الموضوعات", color:MM_COLORS.topics, children:allTopics },
-    { key:"tags",   label:"الوسوم",    color:MM_COLORS.tags,   children:allTags   },
-  ].filter(b=>b.children.length>0);
+  // Fix 2: landscape layout — topics LEFT, tags RIGHT
+  const svgW = Math.max(width, 900);
+  const pillH = 28, pillGap = 10;
+  const topicPillW = Math.max(140, (allTopics.reduce((m,t)=>Math.max(m,t.length),0)) * 13 + 32);
+  const tagPillW   = Math.max(120, (allTags.reduce((m,t)=>Math.max(m,t.length),0)) * 13 + 32);
+  const cW = 148, cH = 72;
+  const maxItems = Math.max(allTopics.length, allTags.length, 1);
+  const svgH = Math.max(500, maxItems * (pillH + pillGap) + 200);
+  const cx = Math.round(svgW / 2);
+  const cy = Math.round(svgH / 2);
 
-  const svgH = Math.max(500, branches.reduce((acc,b) => Math.max(acc, b.children.length * 90 + 200), 0));
-
-  // توزيع الفروع على الجانبين
-  const left  = branches.filter((_,i)=>i%2===0);
-  const right = branches.filter((_,i)=>i%2===1);
-
-  function layoutBranch(branch, side, branchIdx, totalOnSide) {
-    const isLeft = side==="left";
-    const armX   = isLeft ? cx-130 : cx+130;
-    const spread = 130;
-    const startY = cy - ((totalOnSide-1)*spread)/2;
-    const armY   = startY + branchIdx*spread;
-    const leafX  = isLeft ? armX-140 : armX+140;
-    return { armX, armY, leafX, isLeft };
-  }
-
-  const nodes = [];
-  const paths = [];
-
-  // رسم الفروع اليسرى
-  left.forEach((branch, i) => {
-    const { armX, armY, leafX } = layoutBranch(branch,"left",i,left.length);
-    paths.push(<CurvedPath key={`arm-l-${i}`} x1={cx} y1={cy} x2={armX} y2={armY} color={branch.color} width={2} opacity={active&&active!==branch.key?0.15:0.7} />);
-    nodes.push(<MapNode key={`lbl-l-${i}`} x={armX} y={armY} text={branch.label} color={branch.color} bold fontSize={13} maxW={90}
-      highlight={active===branch.key} dimmed={active&&active!==branch.key} onClick={()=>setActive(active===branch.key?null:branch.key)} />);
-    const cStep = 46;
-    const cStart= armY - ((branch.children.length-1)*cStep)/2;
-    branch.children.forEach((c,j)=>{
-      const cy2 = cStart + j*cStep;
-      paths.push(<CurvedPath key={`c-l-${i}-${j}`} x1={armX} y1={armY} x2={leafX} y2={cy2} color={branch.color} opacity={active&&active!==branch.key?0.08:0.4} />);
-      nodes.push(<MapNode key={`leaf-l-${i}-${j}`} x={leafX} y={cy2} text={c} color={branch.color} fontSize={11} maxW={100}
-        dimmed={active&&active!==branch.key} />);
-    });
-  });
-
-  // رسم الفروع اليمنى
-  right.forEach((branch, i) => {
-    const { armX, armY, leafX } = layoutBranch(branch,"right",i,right.length);
-    paths.push(<CurvedPath key={`arm-r-${i}`} x1={cx} y1={cy} x2={armX} y2={armY} color={branch.color} width={2} opacity={active&&active!==branch.key?0.15:0.7} />);
-    nodes.push(<MapNode key={`lbl-r-${i}`} x={armX} y={armY} text={branch.label} color={branch.color} bold fontSize={13} maxW={90}
-      highlight={active===branch.key} dimmed={active&&active!==branch.key} onClick={()=>setActive(active===branch.key?null:branch.key)} />);
-    const cStep = 46;
-    const cStart= armY - ((branch.children.length-1)*cStep)/2;
-    branch.children.forEach((c,j)=>{
-      const cy2 = cStart + j*cStep;
-      paths.push(<CurvedPath key={`c-r-${i}-${j}`} x1={armX} y1={armY} x2={leafX} y2={cy2} color={branch.color} opacity={active&&active!==branch.key?0.08:0.4} />);
-      nodes.push(<MapNode key={`leaf-r-${i}-${j}`} x={leafX} y={cy2} text={c} color={branch.color} fontSize={11} maxW={100}
-        dimmed={active&&active!==branch.key} />);
-    });
-  });
+  const topicSpacing = pillH + pillGap;
+  const topicsStartY = cy - ((allTopics.length - 1) * topicSpacing) / 2;
+  const tagSpacing   = pillH + pillGap;
+  const tagsStartY   = cy - ((allTags.length - 1) * tagSpacing) / 2;
 
   const surahData = SURAHS.find(s=>s.name===surahName);
 
+  // Fix 6: legend
+  const LEGEND_ITEMS = [
+    { label:"الموضوعات", color:"#4A90D9", textColor:"#1a5a9a" },
+    { label:"الوسوم",    color:"#E91E8C", textColor:"#a0006a" },
+  ];
+  const legendX = 40, legendW = svgW - 80;
+  const legendY = svgH - 30;
+  const itemW   = legendW / LEGEND_ITEMS.length;
+
   return (
-    <svg width={width} height={svgH} style={{ display:"block", overflow:"visible" }}>
+    <svg width={width} height={Math.round(svgH * (width / svgW))}
+      viewBox={`0 0 ${svgW} ${svgH}`}
+      style={{ display:"block", overflow:"visible", fontFamily:"Cairo,serif" }}>
       <defs>
-        <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#C9A84C" stopOpacity="0.3"/>
+        <radialGradient id="smGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#C9A84C" stopOpacity="0.2"/>
           <stop offset="100%" stopColor="#C9A84C" stopOpacity="0"/>
         </radialGradient>
       </defs>
-      {/* وهج المركز */}
-      <circle cx={cx} cy={cy} r={80} fill="url(#centerGlow)" />
-      {/* الخطوط */}
-      {paths}
-      {/* عقدة المركز */}
-      <g onClick={()=>setActive(null)} style={{ cursor:"pointer" }}>
-        <circle cx={cx} cy={cy} r={48} fill="#0d0d1a" stroke="#C9A84C" strokeWidth={2} />
-        <text x={cx} y={cy-8}  textAnchor="middle" fill="#C9A84C" fontSize={15} fontWeight="700" fontFamily="Amiri,serif">{surahName}</text>
-        <text x={cx} y={cy+10} textAnchor="middle" fill="#888" fontSize={10} fontFamily="Cairo,serif">{surahData?.revelation}</text>
-        <text x={cx} y={cy+24} textAnchor="middle" fill="#666" fontSize={10} fontFamily="Cairo,serif">{surahNotes.length} ملاحظة</text>
+
+      {/* Glow */}
+      <ellipse cx={cx} cy={cy} rx={90} ry={55} fill="url(#smGlow)"/>
+
+      {/* Fix 4: Topic connectors — pill RIGHT edge → center LEFT edge */}
+      {allTopics.map((t, i) => {
+        const py = topicsStartY + i * topicSpacing;
+        return <path key={`tc${i}`}
+          d={`M${20 + topicPillW},${py + pillH/2} C${cx - cW/2 - 60},${py + pillH/2} ${cx - cW/2 - 20},${cy} ${cx - cW/2},${cy}`}
+          fill="none" stroke="#4A90D9" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.45}/>;
+      })}
+
+      {/* Fix 4: Tag connectors — center RIGHT edge → pill LEFT edge */}
+      {allTags.map((t, i) => {
+        const py = tagsStartY + i * tagSpacing;
+        const pillX = svgW - 20 - tagPillW;
+        return <path key={`gc${i}`}
+          d={`M${cx + cW/2},${cy} C${cx + cW/2 + 20},${cy} ${pillX - 20},${py + pillH/2} ${pillX},${py + pillH/2}`}
+          fill="none" stroke="#E91E8C" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.45}/>;
+      })}
+
+      {/* Fix 3: Center node — light gray */}
+      <g>
+        <rect x={cx-cW/2} y={cy-cH/2} width={cW} height={cH} rx={14}
+          fill="#e8e8ee" stroke="#C9A84C" strokeWidth={2}/>
+        <text x={cx} y={cy-12} textAnchor="middle" dominantBaseline="central"
+          fill="#C9A84C" fontSize={15} fontWeight="700" fontFamily="Amiri,serif">{surahName}</text>
+        <text x={cx} y={cy+6} textAnchor="middle" dominantBaseline="central"
+          fill="#555" fontSize={11} fontFamily="Cairo,serif">{surahData?.revelation}</text>
+        <text x={cx} y={cy+22} textAnchor="middle" dominantBaseline="central"
+          fill="#888" fontSize={10} fontFamily="Cairo,serif">{surahNotes.length} ملاحظة</text>
       </g>
-      {/* العقد */}
-      {nodes}
+
+      {/* Fix 2+3+5: Topic pills LEFT — always blue */}
+      {allTopics.length > 0 && <>
+        <text x={20 + topicPillW/2} y={topicsStartY - 16} textAnchor="middle" dominantBaseline="central"
+          fill="#4A90D9" fontSize={10} fontWeight="600" fontFamily="Cairo,serif">◄ الموضوعات</text>
+        {allTopics.map((t, i) => {
+          const py = topicsStartY + i * topicSpacing;
+          return (
+            <g key={t}>
+              <rect x={20} y={py} width={topicPillW} height={pillH} rx={pillH/2}
+                fill="#4A90D9" fillOpacity={0.13} stroke="#4A90D9" strokeOpacity={0.6} strokeWidth={1}/>
+              <text x={20 + topicPillW/2} y={py + pillH/2} textAnchor="middle" dominantBaseline="central"
+                fill="#4A90D9" fontSize={11} fontFamily="Cairo,serif">{t}</text>
+            </g>
+          );
+        })}
+      </>}
+
+      {/* Fix 2+3+5: Tag pills RIGHT — pink */}
+      {allTags.length > 0 && <>
+        <text x={svgW - 20 - tagPillW/2} y={tagsStartY - 16} textAnchor="middle" dominantBaseline="central"
+          fill="#E91E8C" fontSize={10} fontWeight="600" fontFamily="Cairo,serif">الوسوم ►</text>
+        {allTags.map((t, i) => {
+          const py = tagsStartY + i * tagSpacing;
+          const pillX = svgW - 20 - tagPillW;
+          return (
+            <g key={t}>
+              <rect x={pillX} y={py} width={tagPillW} height={pillH} rx={pillH/2}
+                fill="#E91E8C" fillOpacity={0.1} stroke="#E91E8C" strokeOpacity={0.5} strokeWidth={1}/>
+              <text x={pillX + tagPillW/2} y={py + pillH/2} textAnchor="middle" dominantBaseline="central"
+                fill="#a0006a" fontSize={11} fontFamily="Cairo,serif">#{t}</text>
+            </g>
+          );
+        })}
+      </>}
+
+      {/* Fix 6: Legend */}
+      <rect x={legendX} y={legendY-12} width={legendW} height={26}
+        rx={8} fill="#e8e8ee" stroke="#cccccc" strokeWidth={0.5}/>
+      {LEGEND_ITEMS.map((item, i) => {
+        const slotCX = legendX + (i + 0.5) * itemW;
+        return (
+          <g key={i}>
+            <rect x={slotCX-30} y={legendY-5} width={12} height={10} rx={2} fill={item.color}/>
+            <text x={slotCX-14} y={legendY+1} textAnchor="start" dominantBaseline="central"
+              fontSize={10} fill={item.textColor} fontFamily="Cairo,serif">{item.label}</text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -1020,27 +1057,26 @@ function AyahMindMap({ note, width }) {
   drawRow(bottomMasail, bottomY, cy + cH/2);   // bottom row: connectors from center BOTTOM edge
 
   // ── Topics: left column, dashed blue line ──
-  const tColX     = 20;
-  const tPillW    = 120, tPillH = 24, tPillGap = 8;
-  const tStartY   = cy - (topicList.length * (tPillH + tPillGap) - tPillGap) / 2;
-  const tLabelX   = tColX + tPillW / 2;
+  // Fix 1: topics always blue, full text, dynamic pill width
+  const tColX   = 20;
+  const tPillH  = 24, tPillGap = 8;
+  const tStartY = cy - (topicList.length * (tPillH + tPillGap) - tPillGap) / 2;
 
   const topicsEl = topicList.length > 0 && (
     <g key="topics">
-      <line x1={tColX + tPillW + 8} y1={cy} x2={cx - cW/2} y2={cy}
+      <line x1={tColX} y1={cy} x2={cx - cW/2} y2={cy}
         stroke="#4A90D9" strokeWidth={1.2} strokeDasharray="5,4" strokeOpacity={0.5}/>
-      <text x={tLabelX} y={tStartY - 14} textAnchor="middle" dominantBaseline="central"
+      <text x={tColX + 70} y={tStartY - 14} textAnchor="middle" dominantBaseline="central"
         fill="#4A90D9" fontSize={10} fontWeight="600" fontFamily="Cairo,serif">◄ الموضوعات</text>
       {topicList.map((t, i) => {
+        const tPillW = Math.max(140, t.length * 13 + 32);
         const py = tStartY + i * (tPillH + tPillGap);
-        const cat = TOPICS.find(c => c.items.includes(t));
-        const col = cat?.color || "#4A90D9";
         return (
           <g key={t}>
             <rect x={tColX} y={py} width={tPillW} height={tPillH} rx={tPillH/2}
-              fill={col} fillOpacity={0.13} stroke={col} strokeOpacity={0.6} strokeWidth={1}/>
+              fill="#4A90D9" fillOpacity={0.13} stroke="#4A90D9" strokeOpacity={0.6} strokeWidth={1}/>
             <text x={tColX + tPillW/2} y={py + tPillH/2} textAnchor="middle" dominantBaseline="central"
-              fill={col} fontSize={10} fontFamily="Cairo,serif">{t.slice(0,10)}</text>
+              fill="#4A90D9" fontSize={10} fontFamily="Cairo,serif">{t}</text>
           </g>
         );
       })}
@@ -1065,7 +1101,7 @@ function AyahMindMap({ note, width }) {
             <rect x={tagColX} y={py} width={tagPillW} height={tagPillH} rx={tagPillH/2}
               fill="#E91E8C" fillOpacity={0.1} stroke="#E91E8C" strokeOpacity={0.5} strokeWidth={1}/>
             <text x={tagColX + tagPillW/2} y={py + tagPillH/2} textAnchor="middle" dominantBaseline="central"
-              fill="#a0006a" fontSize={10} fontFamily="Cairo,serif">#{t.slice(0,9)}</text>
+              fill="#a0006a" fontSize={10} fontFamily="Cairo,serif">#{t}</text>
           </g>
         );
       })}
@@ -1120,7 +1156,7 @@ function AyahMindMap({ note, width }) {
           <text x={cx} y={cy+6} textAnchor="middle" dominantBaseline="central"
             fill="#555" fontSize={12} fontFamily="Cairo,serif">آية {ayah}</text>
           <text x={cx} y={cy+22} textAnchor="middle" dominantBaseline="central"
-            fill="#888" fontSize={10} fontFamily="Cairo,serif">{masailList.length} مسألة</text>
+            fill="#888" fontSize={10} fontFamily="Cairo,serif">عدد المسائل: {masailList.length}</text>
         </g>
 
         {/* Masail nodes */}
